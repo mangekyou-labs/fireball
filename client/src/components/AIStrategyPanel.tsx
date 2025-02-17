@@ -398,7 +398,7 @@ export function AIStrategyPanel() {
                                   isAI: false
                                 });
 
-                                queryClient.invalidateQueries({ queryKey: ["/api/trades"] });
+                                await queryClient.invalidateQueries({ queryKey: ["/api/trades"] });
 
                                 toast({
                                   title: "Trade Executed",
@@ -453,7 +453,7 @@ export function AIStrategyPanel() {
                                   isAI: false
                                 });
 
-                                queryClient.invalidateQueries({ queryKey: ["/api/trades"] });
+                                await queryClient.invalidateQueries({ queryKey: ["/api/trades"] });
 
                                 toast({
                                   title: "Trade Executed",
