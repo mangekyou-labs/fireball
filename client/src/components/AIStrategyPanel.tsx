@@ -537,7 +537,56 @@ export function AIStrategyPanel() {
           </div>
 
           <div className="space-y-4">
-            <h3 className="font-semibold">AI Trading History</h3>
+            <div className="flex items-center justify-between">
+              <h3 className="font-semibold">AI Trading History</h3>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={async () => {
+                  try {
+                    // Generate mock trades
+                    await apiRequest("POST", "/api/trades", {
+                      tokenAId: 1, // USDC
+                      tokenBId: 2, // WBTC
+                      amountA: "1000",
+                      amountB: "0.02",
+                      isAI: true
+                    });
+
+                    await apiRequest("POST", "/api/trades", {
+                      tokenAId: 2, // WBTC
+                      tokenBId: 1, // USDC
+                      amountA: "0.02",
+                      amountB: "1020",
+                      isAI: true
+                    });
+
+                    await apiRequest("POST", "/api/trades", {
+                      tokenAId: 1, // USDC
+                      tokenBId: 2, // WBTC
+                      amountA: "1020",
+                      amountB: "0.0205",
+                      isAI: true
+                    });
+
+                    queryClient.invalidateQueries({ queryKey: ["/api/trades"] });
+
+                    toast({
+                      title: "Test Data Generated",
+                      description: "Mock trades have been added to the history",
+                    });
+                  } catch (error) {
+                    toast({
+                      title: "Error",
+                      description: "Failed to generate test trades",
+                      variant: "destructive",
+                    });
+                  }
+                }}
+              >
+                Generate Test Trades
+              </Button>
+            </div>
             <div className="h-[300px] w-full">
               <PerformanceChart trades={trades?.filter(t => t.isAI) || []} />
             </div>
