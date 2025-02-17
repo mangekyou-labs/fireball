@@ -36,6 +36,7 @@ export function AIStrategyPanel() {
   const [selectedTokenB, setSelectedTokenB] = useState<Token | null>(null);
   const [swapAmountA, setSwapAmountA] = useState<string>("");
   const [swapAmountB, setSwapAmountB] = useState<string>("");
+  const [isManualMode, setIsManualMode] = useState(false);
 
   const { data: strategies } = useQuery<Strategy[]>({
     queryKey: ["/api/strategies"]
@@ -332,173 +333,39 @@ export function AIStrategyPanel() {
             </div>
 
             {isWalletConnected && (
-              <>
-                <div className="space-y-4">
-                  <div className="space-y-4">
-                    <TokenPairSelector
-                      selectedTokenA={selectedTokenA}
-                      selectedTokenB={selectedTokenB}
-                      onSelectTokenA={setSelectedTokenA}
-                      onSelectTokenB={setSelectedTokenB}
-                      amountA={swapAmountA}
-                      amountB={swapAmountB}
-                      onAmountAChange={setSwapAmountA}
-                      onAmountBChange={setSwapAmountB}
+              <div className="space-y-4">
+                <TokenPairSelector
+                  selectedTokenA={selectedTokenA}
+                  selectedTokenB={selectedTokenB}
+                  onSelectTokenA={setSelectedTokenA}
+                  onSelectTokenB={setSelectedTokenB}
+                  amountA={swapAmountA}
+                  amountB={swapAmountB}
+                  onAmountAChange={setSwapAmountA}
+                  onAmountBChange={setSwapAmountB}
+                  isManualMode={isManualMode}
+                  onModeChange={setIsManualMode}
+                />
+
+                {!isManualMode && (
+                  <div className="flex items-center justify-between py-2">
+                    <div>
+                      <p className="font-medium">Auto-Trading</p>
+                      <p className="text-sm text-muted-foreground">
+                        {isAutoTrading ? "AI is actively trading" : "AI trading is paused"}
+                      </p>
+                    </div>
+                    <Switch
+                      checked={isAutoTrading}
+                      onCheckedChange={toggleAutoTrading}
+                      disabled={!isWalletConnected || allocatedFunds <= 0}
                     />
-
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm font-medium">Max Slippage</span>
-                        <span className="text-sm text-muted-foreground">{maxSlippage}%</span>
-                      </div>
-                      <Slider
-                        value={[maxSlippage]}
-                        onValueChange={([value]) => setMaxSlippage(value)}
-                        max={5}
-                        step={0.1}
-                      />
-                    </div>
-
-                    <div className="flex items-center justify-between py-4 border-t">
-                      <div>
-                        <p className="font-medium">Manual Trading</p>
-                        <p className="text-sm text-muted-foreground">
-                          Test trading functionality
-                        </p>
-                      </div>
-                      <div className="flex gap-2">
-                        <Button
-                          variant="outline"
-                          onClick={async () => {
-                            try {
-                              if (!selectedTokenA || !selectedTokenB || !swapAmountA) {
-                                toast({
-                                  title: "Select Token Pair & Amount",
-                                  description: "Please select tokens for trading and enter an amount",
-                                  variant: "destructive"
-                                });
-                                return;
-                              }
-
-                              const decimals = selectedTokenA.symbol === "USDC" ? 6 : 8;
-                              const amountIn = ethers.utils.parseUnits(swapAmountA, decimals);
-                              const result = await web3Service.executeSwap(
-                                import.meta.env[`VITE_${selectedTokenA.symbol}_ADDRESS`],
-                                import.meta.env[`VITE_${selectedTokenB.symbol}_ADDRESS`],
-                                amountIn,
-                                maxSlippage
-                              );
-
-                              if (result.success) {
-                                await apiRequest("POST", "/api/trades", {
-                                  tokenAId: selectedTokenA.id,
-                                  tokenBId: selectedTokenB.id,
-                                  amountA: swapAmountA,
-                                  amountB: swapAmountB,
-                                  isAI: false
-                                });
-
-                                await queryClient.invalidateQueries({ queryKey: ["/api/trades"] });
-
-                                toast({
-                                  title: "Trade Executed",
-                                  description: `Manual Buy order completed. TX: ${result.txHash?.slice(0, 10)}...`,
-                                });
-
-                                // Reset amounts after successful trade
-                                setSwapAmountA("");
-                                setSwapAmountB("");
-                              }
-                            } catch (error) {
-                              console.error("Trade failed:", error);
-                              toast({
-                                title: "Trade Failed",
-                                description: error instanceof Error ? error.message : "Failed to execute trade",
-                                variant: "destructive"
-                              });
-                            }
-                          }}
-                          disabled={!allocatedFunds || !selectedTokenA || !selectedTokenB || !swapAmountA}
-                        >
-                          Buy {selectedTokenB?.symbol || 'Token'}
-                        </Button>
-                        <Button
-                          variant="outline"
-                          onClick={async () => {
-                            try {
-                              if (!selectedTokenA || !selectedTokenB || !swapAmountB) {
-                                toast({
-                                  title: "Select Token Pair & Amount",
-                                  description: "Please select tokens for trading and enter an amount",
-                                  variant: "destructive"
-                                });
-                                return;
-                              }
-
-                              const decimals = selectedTokenB.symbol === "USDC" ? 6 : 8;
-                              const amountIn = ethers.utils.parseUnits(swapAmountB, decimals);
-                              const result = await web3Service.executeSwap(
-                                import.meta.env[`VITE_${selectedTokenB.symbol}_ADDRESS`],
-                                import.meta.env[`VITE_${selectedTokenA.symbol}_ADDRESS`],
-                                amountIn,
-                                maxSlippage
-                              );
-
-                              if (result.success) {
-                                await apiRequest("POST", "/api/trades", {
-                                  tokenAId: selectedTokenB.id,
-                                  tokenBId: selectedTokenA.id,
-                                  amountA: swapAmountB,
-                                  amountB: swapAmountA,
-                                  isAI: false
-                                });
-
-                                await queryClient.invalidateQueries({ queryKey: ["/api/trades"] });
-
-                                toast({
-                                  title: "Trade Executed",
-                                  description: `Manual Sell order completed. TX: ${result.txHash?.slice(0, 10)}...`,
-                                });
-
-                                // Reset amounts after successful trade
-                                setSwapAmountA("");
-                                setSwapAmountB("");
-                              }
-                            } catch (error) {
-                              console.error("Trade failed:", error);
-                              toast({
-                                title: "Trade Failed",
-                                description: error instanceof Error ? error.message : "Failed to execute trade",
-                                variant: "destructive"
-                              });
-                            }
-                          }}
-                          disabled={!allocatedFunds || !selectedTokenA || !selectedTokenB || !swapAmountB}
-                        >
-                          Sell {selectedTokenB?.symbol || 'Token'}
-                        </Button>
-                      </div>
-                    </div>
-                    <div className="flex items-center justify-between py-2">
-                      <div>
-                        <p className="font-medium">Auto-Trading</p>
-                        <p className="text-sm text-muted-foreground">
-                          {isAutoTrading ? "AI is actively trading" : "AI trading is paused"}
-                        </p>
-                      </div>
-                      <Switch
-                        checked={isAutoTrading}
-                        onCheckedChange={toggleAutoTrading}
-                        disabled={!isWalletConnected || allocatedFunds <= 0}
-                      />
-                    </div>
                   </div>
-                </div>
-              </>
+                )}
+              </div>
             )}
           </div>
 
-          {/* Force display analysis even if trades are empty */}
           <div className="bg-muted rounded-lg p-4">
             <h3 className="font-semibold mb-2">Strategy Analysis</h3>
             {analysis ? (

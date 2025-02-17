@@ -6,6 +6,12 @@ import { Button } from "@/components/ui/button";
 import { ArrowDownUp } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
+import { Switch } from "@/components/ui/switch";
+import { ethers } from "ethers";
+import { web3Service } from "@/services/web3";
+import { apiRequest } from "@/services/api";
+import { queryClient } from "@/utils/query-client";
+
 
 interface TokenPairSelectorProps {
   selectedTokenA: Token | null;
@@ -16,6 +22,8 @@ interface TokenPairSelectorProps {
   amountB: string;
   onAmountAChange: (amount: string) => void;
   onAmountBChange: (amount: string) => void;
+  isManualMode: boolean;
+  onModeChange: (isManual: boolean) => void;
 }
 
 export function TokenPairSelector({
@@ -27,6 +35,8 @@ export function TokenPairSelector({
   amountB,
   onAmountAChange,
   onAmountBChange,
+  isManualMode,
+  onModeChange,
 }: TokenPairSelectorProps) {
   const { toast } = useToast();
 
@@ -36,7 +46,7 @@ export function TokenPairSelector({
 
   // Auto-convert amount based on token prices
   useEffect(() => {
-    if (selectedTokenA && selectedTokenB && amountA) {
+    if (selectedTokenA && selectedTokenB && amountA && !isManualMode) {
       const priceA = parseFloat(selectedTokenA.price);
       const priceB = parseFloat(selectedTokenB.price);
       if (!isNaN(priceA) && !isNaN(priceB)) {
@@ -45,27 +55,22 @@ export function TokenPairSelector({
         onAmountBChange(convertedAmount.toFixed(8));
       }
     }
-  }, [selectedTokenA, selectedTokenB, amountA, onAmountBChange]);
-
-  const handleSwap = () => {
-    if (!selectedTokenA || !selectedTokenB || !amountA) {
-      toast({
-        title: "Invalid Swap",
-        description: "Please select tokens and enter an amount",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    // Here we would normally execute the swap
-    toast({
-      title: "Swap Executed",
-      description: `Swapped ${amountA} ${selectedTokenA.symbol} for ${amountB} ${selectedTokenB.symbol}`,
-    });
-  };
+  }, [selectedTokenA, selectedTokenB, amountA, onAmountBChange, isManualMode]);
 
   return (
     <div className="space-y-6">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <Switch 
+            checked={isManualMode}
+            onCheckedChange={onModeChange}
+          />
+          <span className="text-sm font-medium">
+            {isManualMode ? "Manual Trading" : "AI Trading"}
+          </span>
+        </div>
+      </div>
+
       <div className="space-y-4">
         <div className="space-y-2">
           <label className="text-sm font-medium">From</label>
@@ -156,9 +161,65 @@ export function TokenPairSelector({
         </div>
       </div>
 
-      <Button className="w-full" onClick={handleSwap}>
-        Swap
-      </Button>
+      {isManualMode && (
+        <Button className="w-full" onClick={async () => {
+          try {
+            if (!selectedTokenA || !selectedTokenB || !amountA) {
+              toast({
+                title: "Invalid Swap",
+                description: "Please select tokens and enter an amount",
+                variant: "destructive",
+              });
+              return;
+            }
+
+            const decimals = selectedTokenA.symbol === "USDC" ? 6 : 8;
+            const amountIn = ethers.utils.parseUnits(amountA, decimals);
+            const result = await web3Service.executeSwap(
+              import.meta.env[`VITE_${selectedTokenA.symbol}_ADDRESS`],
+              import.meta.env[`VITE_${selectedTokenB.symbol}_ADDRESS`],
+              amountIn,
+              0.5 // Default slippage
+            );
+
+            if (result.success) {
+              await apiRequest("POST", "/api/trades", {
+                tokenAId: selectedTokenA.id,
+                tokenBId: selectedTokenB.id,
+                amountA: amountA,
+                amountB: amountB,
+                isAI: false
+              });
+
+              await queryClient.invalidateQueries({ queryKey: ["/api/trades"] });
+
+              toast({
+                title: "Trade Executed",
+                description: `Swapped ${amountA} ${selectedTokenA.symbol} for ${amountB} ${selectedTokenB.symbol}`,
+              });
+
+              // Reset amounts after successful trade
+              onAmountAChange("");
+              onAmountBChange("");
+            } else {
+              toast({
+                title: "Trade Failed",
+                description: `Swap failed with status ${result.status}`,
+                variant: "destructive"
+              });
+            }
+          } catch (error) {
+            console.error("Trade failed:", error);
+            toast({
+              title: "Trade Failed",
+              description: error instanceof Error ? error.message : "Failed to execute trade",
+              variant: "destructive"
+            });
+          }
+        }}>
+          Manual Swap
+        </Button>
+      )}
     </div>
   );
 }
