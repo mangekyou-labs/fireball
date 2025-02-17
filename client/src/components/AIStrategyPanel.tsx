@@ -10,6 +10,8 @@ import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Slider } from "@/components/ui/slider";
+import { PerformanceChart } from "./PerformanceChart"; // Fix: Use named import
+
 
 export function AIStrategyPanel() {
   const { toast } = useToast();
@@ -45,10 +47,11 @@ export function AIStrategyPanel() {
         title: "Wallet Connected",
         description: "Your wallet has been connected successfully.",
       });
-    } catch (error) {
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : "Failed to connect wallet. Please try again.";
       toast({
         title: "Connection Failed",
-        description: "Failed to connect wallet. Please try again.",
+        description: errorMessage,
         variant: "destructive",
       });
     }
@@ -62,10 +65,11 @@ export function AIStrategyPanel() {
         title: "Funds Allocated",
         description: `Successfully allocated ${amount} to AI trading wallet.`,
       });
-    } catch (error) {
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : "Failed to allocate funds. Please try again.";
       toast({
         title: "Allocation Failed",
-        description: "Failed to allocate funds. Please try again.",
+        description: errorMessage,
         variant: "destructive",
       });
     }
@@ -87,10 +91,11 @@ export function AIStrategyPanel() {
           ? `AI will now automatically execute trades with ${allocatedFunds} allocated funds`
           : "Auto-trading has been disabled",
       });
-    } catch (error) {
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : "An unexpected error occurred.";
       toast({
         title: "Error",
-        description: error.message,
+        description: errorMessage,
         variant: "destructive",
       });
     }
@@ -131,11 +136,12 @@ export function AIStrategyPanel() {
             executeAutomatedTrade(newAnalysis);
           }
         }
-      } catch (error) {
+      } catch (error: unknown) {
         setIsError(true);
+        const errorMessage = error instanceof Error ? error.message : "Failed to update market analysis";
         toast({
           title: "Analysis Error",
-          description: "Failed to update market analysis",
+          description: errorMessage,
           variant: "destructive",
         });
       }
@@ -164,10 +170,11 @@ export function AIStrategyPanel() {
           description: `AI is executing a sell order with confidence ${analysis.confidence * 100}%`,
         });
       }
-    } catch (error) {
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : "Trade execution failed.";
       toast({
         title: "Trade Execution Failed",
-        description: error.message,
+        description: errorMessage,
         variant: "destructive",
       });
     }
@@ -182,10 +189,11 @@ export function AIStrategyPanel() {
         title: "Strategy Updated",
         description: `Strategy has been ${enabled ? 'enabled' : 'disabled'}`,
       });
-    } catch (error) {
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : "Failed to update strategy status";
       toast({
         title: "Update Failed",
-        description: "Failed to update strategy status",
+        description: errorMessage,
         variant: "destructive",
       });
     }
@@ -313,6 +321,40 @@ export function AIStrategyPanel() {
               </div>
             </div>
           )}
+
+          {/* Add Trading History Section */}
+          <div className="space-y-4">
+            <h3 className="font-semibold">AI Trading History</h3>
+            <div className="h-[300px] w-full">
+              <PerformanceChart trades={trades?.filter(t => t.isAI) || []} />
+            </div>
+            <div className="space-y-2">
+              {trades?.filter(t => t.isAI).map((trade, index) => (
+                <div key={index} className="flex items-center justify-between p-3 bg-muted rounded-lg">
+                  <div>
+                    <p className="font-medium">
+                      {trade.timestamp ? new Date(trade.timestamp).toLocaleString() : 'No timestamp'}
+                    </p>
+                    <p className="text-sm text-muted-foreground">
+                      Amount: ${Number(trade.amountA).toLocaleString()}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className={`font-medium ${
+                      Number(trade.amountB) > Number(trade.amountA)
+                        ? "text-green-500"
+                        : "text-red-500"
+                    }`}>
+                      {((Number(trade.amountB) - Number(trade.amountA)) / Number(trade.amountA) * 100).toFixed(2)}%
+                    </p>
+                    <p className="text-sm text-muted-foreground">
+                      {Number(trade.amountB) > Number(trade.amountA) ? "Profit" : "Loss"}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
 
           <div className="space-y-4">
             <h3 className="font-semibold">Active Strategies</h3>
