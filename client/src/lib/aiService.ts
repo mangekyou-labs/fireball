@@ -5,14 +5,19 @@ let openai: OpenAI | null = null;
 function initializeOpenAI() {
   const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
   if (!apiKey) {
-    console.warn("OpenAI API key not found. AI features will be disabled.");
+    console.error("OpenAI API key is missing. Check your .env file configuration.");
     return null;
   }
 
-  return new OpenAI({
-    apiKey,
-    dangerouslyAllowBrowser: true
-  });
+  try {
+    return new OpenAI({
+      apiKey,
+      dangerouslyAllowBrowser: true
+    });
+  } catch (error) {
+    console.error("Failed to initialize OpenAI client:", error);
+    return null;
+  }
 }
 
 interface MarketAnalysis {
