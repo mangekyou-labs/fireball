@@ -1,5 +1,6 @@
 import { ethers } from 'ethers';
 import { toast } from '@/hooks/use-toast';
+import { testWalletService } from './testWalletService';
 
 // Add window.ethereum type declaration
 declare global {
@@ -28,9 +29,17 @@ export class Web3Service {
   private provider: ethers.providers.Web3Provider | null = null;
   private signer: ethers.Signer | null = null;
   private router: ethers.Contract | null = null;
+  private isTestMode: boolean = false;
 
-  async connect(): Promise<boolean> {
+  async connect(useTestWallet: boolean = false): Promise<boolean> {
     try {
+      if (useTestWallet) {
+        const testAddress = testWalletService.generateTestWallet();
+        this.isTestMode = true;
+        console.log("Connected to test wallet:", testAddress);
+        return true;
+      }
+
       // Check if MetaMask is installed
       if (!window.ethereum) {
         toast({
@@ -47,6 +56,7 @@ export class Web3Service {
       this.provider = new ethers.providers.Web3Provider(window.ethereum);
       this.signer = this.provider.getSigner();
       this.router = new ethers.Contract(ROUTER_ADDRESS, ROUTER_ABI, this.signer);
+      this.isTestMode = false;
 
       // Get connected account to verify
       const address = await this.signer.getAddress();
@@ -71,6 +81,10 @@ export class Web3Service {
     slippage: number
   ): Promise<{ success: boolean; txHash?: string; error?: string }> {
     try {
+      if (this.isTestMode) {
+        return testWalletService.executeTestSwap(tokenIn, tokenOut, amountIn);
+      }
+
       if (!this.signer || !this.router) {
         throw new Error("Wallet not connected");
       }
@@ -113,6 +127,11 @@ export class Web3Service {
 
   async getTokenBalance(tokenAddress: string): Promise<string> {
     try {
+      if (this.isTestMode) {
+        const balance = await testWalletService.getTestBalance(tokenAddress);
+        return balance.toString();
+      }
+
       if (!this.signer || !this.provider) {
         throw new Error("Wallet not connected");
       }
@@ -126,6 +145,17 @@ export class Web3Service {
       console.error("Failed to get token balance:", error);
       return "0";
     }
+  }
+
+  getCurrentWalletAddress(): string | null {
+    if (this.isTestMode) {
+      return testWalletService.getWalletAddress();
+    }
+    return null;
+  }
+
+  isConnected(): boolean {
+    return this.isTestMode || (this.provider !== null && this.signer !== null);
   }
 }
 

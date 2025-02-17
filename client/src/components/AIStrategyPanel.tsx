@@ -43,15 +43,25 @@ export function AIStrategyPanel() {
     queryKey: ["/api/tokens"]
   });
 
-  const connectWallet = async () => {
+  const connectWallet = async (useTestWallet: boolean = false) => {
     try {
-      const connected = await web3Service.connect();
+      const connected = await web3Service.connect(useTestWallet);
       if (connected) {
         setIsWalletConnected(true);
-        toast({
-          title: "Wallet Connected",
-          description: "Your wallet has been connected successfully.",
-        });
+        if (useTestWallet) {
+          const testAddress = web3Service.getCurrentWalletAddress();
+          toast({
+            title: "Test Wallet Connected",
+            description: `Connected to test wallet: ${testAddress?.slice(0, 10)}...`,
+          });
+          // Automatically allocate funds for test wallet
+          setAllocatedFunds(10000); // 10,000 USDC
+        } else {
+          toast({
+            title: "Wallet Connected",
+            description: "Your wallet has been connected successfully.",
+          });
+        }
       }
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : "Failed to connect wallet. Please try again.";
@@ -283,9 +293,17 @@ export function AIStrategyPanel() {
                 <h3 className="font-semibold">AI Wallet</h3>
               </div>
               {!isWalletConnected ? (
-                <Button onClick={connectWallet}>
-                  Connect Wallet
-                </Button>
+                <div className="flex gap-2">
+                  <Button onClick={() => connectWallet(false)}>
+                    Connect Wallet
+                  </Button>
+                  <Button 
+                    onClick={() => connectWallet(true)}
+                    variant="outline"
+                  >
+                    Use Test Wallet
+                  </Button>
+                </div>
               ) : (
                 <div className="flex items-center gap-4">
                   <Input
