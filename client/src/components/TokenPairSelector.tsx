@@ -175,6 +175,15 @@ export function TokenPairSelector({
 
             const decimals = selectedTokenA.symbol === "USDC" ? 6 : 8;
             const amountIn = ethers.utils.parseUnits(amountA, decimals);
+
+            // Log the swap attempt
+            console.log('Attempting swap with params:', {
+              tokenIn: import.meta.env[`VITE_${selectedTokenA.symbol}_ADDRESS`],
+              tokenOut: import.meta.env[`VITE_${selectedTokenB.symbol}_ADDRESS`],
+              amountIn: amountIn.toString(),
+              slippage: 0.5
+            });
+
             const result = await web3Service.executeSwap(
               import.meta.env[`VITE_${selectedTokenA.symbol}_ADDRESS`],
               import.meta.env[`VITE_${selectedTokenB.symbol}_ADDRESS`],
@@ -198,21 +207,32 @@ export function TokenPairSelector({
                 description: `Pushing to database: TokenA(${selectedTokenA.symbol}): ${amountA}, TokenB(${selectedTokenB.symbol}): ${amountB}`,
               });
 
-              await apiRequest("POST", "/api/trades", tradeData);
-              await queryClient.invalidateQueries({ queryKey: ["/api/trades"] });
+              try {
+                const response = await apiRequest("POST", "/api/trades", tradeData);
+                console.log('Database response:', response);
 
-              toast({
-                title: "Trade Executed",
-                description: `Swapped ${amountA} ${selectedTokenA.symbol} for ${amountB} ${selectedTokenB.symbol}`,
-              });
+                await queryClient.invalidateQueries({ queryKey: ["/api/trades"] });
 
-              // Reset amounts after successful trade
-              onAmountAChange("");
-              onAmountBChange("");
+                toast({
+                  title: "Trade Executed",
+                  description: `Swapped ${amountA} ${selectedTokenA.symbol} for ${amountB} ${selectedTokenB.symbol}`,
+                });
+
+                // Reset amounts after successful trade
+                onAmountAChange("");
+                onAmountBChange("");
+              } catch (dbError) {
+                console.error('Database error:', dbError);
+                toast({
+                  title: "Database Error",
+                  description: "Failed to save trade to database. Check console for details.",
+                  variant: "destructive"
+                });
+              }
             } else {
               toast({
                 title: "Trade Failed",
-                description: `Swap failed with status ${result.status}`,
+                description: result.error || "Unknown error occurred",
                 variant: "destructive"
               });
             }
