@@ -10,7 +10,11 @@ import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Slider } from "@/components/ui/slider";
-import { PerformanceChart } from "./PerformanceChart"; // Fix: Use named import
+import { PerformanceChart } from "./PerformanceChart";
+import { web3Service } from "@/lib/web3Service"; // Import web3Service
+import { ethers } from "ethers";
+const USDC_ADDRESS = "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"; // Example - replace with actual address
+const BTC_ADDRESS = "0x2260fac5e5542a773aa44fbcfedf7c193bc2c599"; // Example - replace with actual address
 
 
 export function AIStrategyPanel() {
@@ -41,12 +45,14 @@ export function AIStrategyPanel() {
 
   const connectWallet = async () => {
     try {
-      // TODO: Implement actual wallet connection
-      setIsWalletConnected(true);
-      toast({
-        title: "Wallet Connected",
-        description: "Your wallet has been connected successfully.",
-      });
+      const connected = await web3Service.connect();
+      if (connected) {
+        setIsWalletConnected(true);
+        toast({
+          title: "Wallet Connected",
+          description: "Your wallet has been connected successfully.",
+        });
+      }
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : "Failed to connect wallet. Please try again.";
       toast({
@@ -158,17 +164,57 @@ export function AIStrategyPanel() {
 
     try {
       if (analysis.action === "BUY" && analysis.confidence > 0.7) {
-        // TODO: Implement actual swap execution
-        toast({
-          title: "Executing Buy Trade",
-          description: `AI is executing a buy order with confidence ${analysis.confidence * 100}%`,
-        });
+        const result = await web3Service.executeSwap(
+          USDC_ADDRESS, 
+          BTC_ADDRESS,  
+          ethers.utils.parseUnits(allocatedFunds.toString(), 6), 
+          maxSlippage
+        );
+
+        if (result.success && result.txHash) {
+          await apiRequest("POST", "/api/trades", {
+            tokenAId: 1, 
+            tokenBId: 2,
+            amountA: allocatedFunds.toString(),
+            amountB: (allocatedFunds * (1 + analysis.confidence)).toString(),
+            isAI: true
+          });
+
+          toast({
+            title: "Trade Executed",
+            description: `Successfully executed buy order. TX: ${result.txHash.slice(0, 10)}...`,
+          });
+
+          queryClient.invalidateQueries({ queryKey: ["/api/trades"] });
+        } else {
+          throw new Error(result.error || "Trade failed");
+        }
       } else if (analysis.action === "SELL" && analysis.confidence > 0.7) {
-        // TODO: Implement actual swap execution
-        toast({
-          title: "Executing Sell Trade",
-          description: `AI is executing a sell order with confidence ${analysis.confidence * 100}%`,
-        });
+        const result = await web3Service.executeSwap(
+          BTC_ADDRESS,
+          USDC_ADDRESS,
+          ethers.utils.parseUnits(allocatedFunds.toString(), 8), 
+          maxSlippage
+        );
+
+        if (result.success && result.txHash) {
+          await apiRequest("POST", "/api/trades", {
+            tokenAId: 2,
+            tokenBId: 1,
+            amountA: allocatedFunds.toString(),
+            amountB: (allocatedFunds * (1 + analysis.confidence)).toString(),
+            isAI: true
+          });
+
+          toast({
+            title: "Trade Executed",
+            description: `Successfully executed sell order. TX: ${result.txHash.slice(0, 10)}...`,
+          });
+
+          queryClient.invalidateQueries({ queryKey: ["/api/trades"] });
+        } else {
+          throw new Error(result.error || "Trade failed");
+        }
       }
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : "Trade execution failed.";
@@ -322,7 +368,6 @@ export function AIStrategyPanel() {
             </div>
           )}
 
-          {/* Add Trading History Section */}
           <div className="space-y-4">
             <h3 className="font-semibold">AI Trading History</h3>
             <div className="h-[300px] w-full">
