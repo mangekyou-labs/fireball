@@ -192,6 +192,12 @@ export function TokenPairSelector({
                 isAI: false
               };
 
+              console.log('Pushing manual trade to database:', tradeData);
+              toast({
+                title: "Trade Data",
+                description: `Pushing to database: TokenA(${selectedTokenA.symbol}): ${amountA}, TokenB(${selectedTokenB.symbol}): ${amountB}`,
+              });
+
               await apiRequest("POST", "/api/trades", tradeData);
               await queryClient.invalidateQueries({ queryKey: ["/api/trades"] });
 

@@ -411,41 +411,32 @@ export function AIStrategyPanel() {
                 size="sm"
                 onClick={async () => {
                   try {
-                    // Generate mock trades
-                    await apiRequest("POST", "/api/trades", {
+                    // Generate one mock trade
+                    const mockTradeData = {
                       tokenAId: 1, // USDC
                       tokenBId: 2, // WBTC
                       amountA: "1000",
                       amountB: "0.02",
                       isAI: true
+                    };
+
+                    console.log('Pushing test trade to database:', mockTradeData);
+                    toast({
+                      title: "Test Trade Data",
+                      description: `Pushing to database: USDC: ${mockTradeData.amountA}, WBTC: ${mockTradeData.amountB}`,
                     });
 
-                    await apiRequest("POST", "/api/trades", {
-                      tokenAId: 2, // WBTC
-                      tokenBId: 1, // USDC
-                      amountA: "0.02",
-                      amountB: "1020",
-                      isAI: true
-                    });
-
-                    await apiRequest("POST", "/api/trades", {
-                      tokenAId: 1, // USDC
-                      tokenBId: 2, // WBTC
-                      amountA: "1020",
-                      amountB: "0.0205",
-                      isAI: true
-                    });
-
-                    queryClient.invalidateQueries({ queryKey: ["/api/trades"] });
+                    await apiRequest("POST", "/api/trades", mockTradeData);
+                    await queryClient.invalidateQueries({ queryKey: ["/api/trades"] });
 
                     toast({
                       title: "Test Data Generated",
-                      description: "Mock trades have been added to the history",
+                      description: "Mock trade has been added to the history",
                     });
                   } catch (error) {
                     toast({
                       title: "Error",
-                      description: "Failed to generate test trades",
+                      description: "Failed to generate test trade",
                       variant: "destructive",
                     });
                   }
