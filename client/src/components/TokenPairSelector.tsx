@@ -44,9 +44,9 @@ export function TokenPairSelector({
     queryKey: ["/api/tokens"]
   });
 
-  // Auto-convert amount based on token prices
+  // Auto-convert amount based on token prices - now works in both modes
   useEffect(() => {
-    if (selectedTokenA && selectedTokenB && amountA && !isManualMode) {
+    if (selectedTokenA && selectedTokenB && amountA) {
       const priceA = parseFloat(selectedTokenA.price);
       const priceB = parseFloat(selectedTokenB.price);
       if (!isNaN(priceA) && !isNaN(priceB)) {
@@ -55,7 +55,7 @@ export function TokenPairSelector({
         onAmountBChange(convertedAmount.toFixed(8));
       }
     }
-  }, [selectedTokenA, selectedTokenB, amountA, onAmountBChange, isManualMode]);
+  }, [selectedTokenA, selectedTokenB, amountA, onAmountBChange]);
 
   return (
     <div className="space-y-6">
@@ -183,14 +183,16 @@ export function TokenPairSelector({
             );
 
             if (result.success) {
-              await apiRequest("POST", "/api/trades", {
+              // Match the exact format of test trades
+              const tradeData = {
                 tokenAId: selectedTokenA.id,
                 tokenBId: selectedTokenB.id,
                 amountA: amountA,
                 amountB: amountB,
                 isAI: false
-              });
+              };
 
+              await apiRequest("POST", "/api/trades", tradeData);
               await queryClient.invalidateQueries({ queryKey: ["/api/trades"] });
 
               toast({
