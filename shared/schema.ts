@@ -6,16 +6,16 @@ export const tokens = pgTable("tokens", {
   id: serial("id").primaryKey(),
   symbol: text("symbol").notNull(),
   name: text("name").notNull(),
-  price: numeric("price").notNull(),
-  liquidity: numeric("liquidity").notNull(),
+  price: text("price").notNull(), // Using text for price to avoid numeric precision issues
+  liquidity: text("liquidity").notNull(),
 });
 
 export const trades = pgTable("trades", {
   id: serial("id").primaryKey(),
   tokenAId: serial("token_a_id").references(() => tokens.id),
   tokenBId: serial("token_b_id").references(() => tokens.id),
-  amountA: numeric("amount_a").notNull(),
-  amountB: numeric("amount_b").notNull(),
+  amountA: text("amount_a").notNull(),
+  amountB: text("amount_b").notNull(),
   timestamp: timestamp("timestamp").defaultNow(),
   isAI: boolean("is_ai").default(false),
 });
@@ -23,7 +23,7 @@ export const trades = pgTable("trades", {
 export const strategies = pgTable("strategies", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
-  rsiThreshold: numeric("rsi_threshold").notNull(),
+  rsiThreshold: text("rsi_threshold").notNull(),
   enabled: boolean("enabled").default(false),
 });
 
