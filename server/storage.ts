@@ -29,52 +29,27 @@ export class MemStorage implements IStorage {
     this.strategies = new Map();
     this.currentIds = { token: 1, trade: 1, strategy: 1 };
 
-    // Initialize with mock data
-    this.initializeMockData();
+    // Initialize with base tokens and strategies
+    this.initializeBaseData();
   }
 
-  private initializeMockData() {
-    const mockTokens: InsertToken[] = [
-      { symbol: "ETH", name: "Ethereum", price: "1800.50", liquidity: "1000000" },
-      { symbol: "BTC", name: "Bitcoin", price: "50000.00", liquidity: "2000000" },
-      { symbol: "USDT", name: "Tether", price: "1.00", liquidity: "5000000" }
+  private initializeBaseData() {
+    const baseTokens: InsertToken[] = [
+      { symbol: "USDC", name: "USD Coin", price: "1.00", liquidity: "5000000" },
+      { symbol: "WBTC", name: "Wrapped Bitcoin", price: "50000.00", liquidity: "2000000" }
     ];
 
-    const mockStrategies: InsertStrategy[] = [
+    const baseStrategies: InsertStrategy[] = [
       { name: "RSI Reversal", rsiThreshold: "70", enabled: true },
       { name: "Moving Average Cross", rsiThreshold: "65", enabled: false },
       { name: "Volume Breakout", rsiThreshold: "75", enabled: false }
     ];
 
-    // Create mock tokens
-    mockTokens.forEach(token => this.createToken(token));
+    // Create base tokens
+    baseTokens.forEach(token => this.createToken(token));
 
-    // Create mock strategies
-    mockStrategies.forEach(strategy => this.createStrategy(strategy));
-
-    // Create mock trades
-    const mockTrades: InsertTrade[] = [];
-    const baseTimestamp = new Date();
-    baseTimestamp.setHours(baseTimestamp.getHours() - 24); // Start 24 hours ago
-
-    for (let i = 0; i < 20; i++) {
-      const timestamp = new Date(baseTimestamp);
-      timestamp.setHours(timestamp.getHours() + i);
-
-      const isProfit = Math.random() > 0.3; // 70% win rate
-      const volume = 10000 + Math.random() * 50000;
-      const profitLoss = isProfit ? 1 + (Math.random() * 0.05) : 1 - (Math.random() * 0.03);
-
-      mockTrades.push({
-        tokenAId: 1,
-        tokenBId: 2,
-        amountA: volume.toString(),
-        amountB: (volume * profitLoss).toString(),
-        isAI: true
-      });
-    }
-
-    mockTrades.forEach(trade => this.createTrade(trade));
+    // Create base strategies
+    baseStrategies.forEach(strategy => this.createStrategy(strategy));
   }
 
   async getTokens(): Promise<Token[]> {

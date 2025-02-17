@@ -67,7 +67,7 @@ export class Web3Service {
   async executeSwap(
     tokenIn: string,
     tokenOut: string,
-    amountIn: string,
+    amountIn: ethers.BigNumber,
     slippage: number
   ): Promise<{ success: boolean; txHash?: string; error?: string }> {
     try {
@@ -113,7 +113,7 @@ export class Web3Service {
 
   async getTokenBalance(tokenAddress: string): Promise<string> {
     try {
-      if (!this.signer) {
+      if (!this.signer || !this.provider) {
         throw new Error("Wallet not connected");
       }
 

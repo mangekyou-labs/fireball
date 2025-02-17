@@ -159,15 +159,16 @@ export function AIStrategyPanel() {
     return () => clearInterval(interval);
   }, [trades, tokens, toast, isAutoTrading, allocatedFunds]);
 
-  const executeAutomatedTrade = async (analysis: any) => {
+  async function executeAutomatedTrade(analysis: any) {
     if (!isAutoTrading || allocatedFunds <= 0) return;
 
     try {
       if (analysis.action === "BUY" && analysis.confidence > 0.7) {
+        const amountIn = ethers.utils.parseUnits(allocatedFunds.toString(), 6);
         const result = await web3Service.executeSwap(
           USDC_ADDRESS, 
           BTC_ADDRESS,  
-          ethers.utils.parseUnits(allocatedFunds.toString(), 6), 
+          amountIn, 
           maxSlippage
         );
 
@@ -190,10 +191,11 @@ export function AIStrategyPanel() {
           throw new Error(result.error || "Trade failed");
         }
       } else if (analysis.action === "SELL" && analysis.confidence > 0.7) {
+        const amountIn = ethers.utils.parseUnits(allocatedFunds.toString(), 8);
         const result = await web3Service.executeSwap(
           BTC_ADDRESS,
           USDC_ADDRESS,
-          ethers.utils.parseUnits(allocatedFunds.toString(), 8), 
+          amountIn,
           maxSlippage
         );
 
@@ -224,7 +226,7 @@ export function AIStrategyPanel() {
         variant: "destructive",
       });
     }
-  };
+  }
 
   const toggleStrategy = async (id: number, enabled: boolean) => {
     try {
