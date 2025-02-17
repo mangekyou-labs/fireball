@@ -183,11 +183,12 @@ export function AIStrategyPanel() {
         );
 
         if (result.success && result.txHash) {
+          // Save the trade to the database
           await apiRequest("POST", "/api/trades", {
-            tokenAId: 1, 
-            tokenBId: 2,
+            tokenAId: 1, // USDC token ID
+            tokenBId: 2, // WBTC token ID
             amountA: allocatedFunds.toString(),
-            amountB: (allocatedFunds * (1 + analysis.confidence)).toString(),
+            amountB: (allocatedFunds * (1 - maxSlippage / 100)).toString(),
             isAI: true
           });
 
@@ -210,11 +211,12 @@ export function AIStrategyPanel() {
         );
 
         if (result.success && result.txHash) {
+          // Save the trade to the database
           await apiRequest("POST", "/api/trades", {
-            tokenAId: 2,
-            tokenBId: 1,
+            tokenAId: 2, // WBTC token ID
+            tokenBId: 1, // USDC token ID
             amountA: allocatedFunds.toString(),
-            amountB: (allocatedFunds * (1 + analysis.confidence)).toString(),
+            amountB: (allocatedFunds * (1 - maxSlippage / 100)).toString(),
             isAI: true
           });
 
