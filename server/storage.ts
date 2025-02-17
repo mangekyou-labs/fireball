@@ -80,6 +80,7 @@ export class DatabaseStorage implements IStorage {
   // Initialize base data if not exists
   async initializeBaseData() {
     const existingTokens = await this.getTokens();
+    const existingStrategies = await this.getStrategies();
 
     if (existingTokens.length === 0) {
       const baseTokens: InsertToken[] = [
@@ -87,16 +88,18 @@ export class DatabaseStorage implements IStorage {
         { symbol: "WBTC", name: "Wrapped Bitcoin", price: "50000.00", liquidity: "2000000" }
       ];
 
+      // Create base tokens
+      for (const token of baseTokens) {
+        await this.createToken(token);
+      }
+    }
+
+    if (existingStrategies.length === 0) {
       const baseStrategies: InsertStrategy[] = [
         { name: "RSI Reversal", rsiThreshold: "70", enabled: true },
         { name: "Moving Average Cross", rsiThreshold: "65", enabled: false },
         { name: "Volume Breakout", rsiThreshold: "75", enabled: false }
       ];
-
-      // Create base tokens
-      for (const token of baseTokens) {
-        await this.createToken(token);
-      }
 
       // Create base strategies
       for (const strategy of baseStrategies) {
