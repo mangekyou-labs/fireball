@@ -348,25 +348,38 @@ export function AIStrategyPanel() {
                     <Button 
                       variant="outline"
                       onClick={async () => {
-                        const amountIn = ethers.utils.parseUnits(allocatedFunds.toString(), 6);
-                        const result = await web3Service.executeSwap(
-                          USDC_ADDRESS,
-                          BTC_ADDRESS,
-                          amountIn,
-                          maxSlippage
-                        );
-                        if (result.success) {
-                          await apiRequest("POST", "/api/trades", {
-                            tokenAId: 1,
-                            tokenBId: 2,
-                            amountA: allocatedFunds.toString(),
-                            amountB: (allocatedFunds * (1 - maxSlippage / 100)).toString(),
-                            isAI: false
-                          });
-                          queryClient.invalidateQueries({ queryKey: ["/api/trades"] });
+                        try {
+                          const amountIn = ethers.utils.parseUnits(allocatedFunds.toString(), 6);
+                          const result = await web3Service.executeSwap(
+                            USDC_ADDRESS,
+                            BTC_ADDRESS,
+                            amountIn,
+                            maxSlippage
+                          );
+                          if (result.success) {
+                            // Create trade record
+                            await apiRequest("POST", "/api/trades", {
+                              tokenAId: 3, // USDC token ID from database
+                              tokenBId: 4, // WBTC token ID from database
+                              amountA: allocatedFunds.toString(),
+                              amountB: (allocatedFunds * 0.98).toString(), // Simulated 2% slippage
+                              isAI: false
+                            });
+
+                            // Refresh trades data
+                            queryClient.invalidateQueries({ queryKey: ["/api/trades"] });
+
+                            toast({
+                              title: "Trade Executed",
+                              description: `Manual Buy order completed. TX: ${result.txHash?.slice(0, 10)}...`,
+                            });
+                          }
+                        } catch (error) {
+                          console.error("Trade failed:", error);
                           toast({
-                            title: "Trade Executed",
-                            description: `Manual Buy order completed. TX: ${result.txHash?.slice(0, 10)}...`,
+                            title: "Trade Failed",
+                            description: error instanceof Error ? error.message : "Failed to execute trade",
+                            variant: "destructive"
                           });
                         }
                       }}
@@ -377,25 +390,38 @@ export function AIStrategyPanel() {
                     <Button
                       variant="outline"
                       onClick={async () => {
-                        const amountIn = ethers.utils.parseUnits(allocatedFunds.toString(), 8);
-                        const result = await web3Service.executeSwap(
-                          BTC_ADDRESS,
-                          USDC_ADDRESS,
-                          amountIn,
-                          maxSlippage
-                        );
-                        if (result.success) {
-                          await apiRequest("POST", "/api/trades", {
-                            tokenAId: 2,
-                            tokenBId: 1,
-                            amountA: allocatedFunds.toString(),
-                            amountB: (allocatedFunds * (1 - maxSlippage / 100)).toString(),
-                            isAI: false
-                          });
-                          queryClient.invalidateQueries({ queryKey: ["/api/trades"] });
+                        try {
+                          const amountIn = ethers.utils.parseUnits(allocatedFunds.toString(), 8);
+                          const result = await web3Service.executeSwap(
+                            BTC_ADDRESS,
+                            USDC_ADDRESS,
+                            amountIn,
+                            maxSlippage
+                          );
+                          if (result.success) {
+                            // Create trade record
+                            await apiRequest("POST", "/api/trades", {
+                              tokenAId: 4, // WBTC token ID from database
+                              tokenBId: 3, // USDC token ID from database
+                              amountA: allocatedFunds.toString(),
+                              amountB: (allocatedFunds * 0.98).toString(), // Simulated 2% slippage
+                              isAI: false
+                            });
+
+                            // Refresh trades data
+                            queryClient.invalidateQueries({ queryKey: ["/api/trades"] });
+
+                            toast({
+                              title: "Trade Executed",
+                              description: `Manual Sell order completed. TX: ${result.txHash?.slice(0, 10)}...`,
+                            });
+                          }
+                        } catch (error) {
+                          console.error("Trade failed:", error);
                           toast({
-                            title: "Trade Executed",
-                            description: `Manual Sell order completed. TX: ${result.txHash?.slice(0, 10)}...`,
+                            title: "Trade Failed",
+                            description: error instanceof Error ? error.message : "Failed to execute trade",
+                            variant: "destructive"
                           });
                         }
                       }}
