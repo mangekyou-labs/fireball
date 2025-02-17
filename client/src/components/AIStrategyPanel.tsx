@@ -446,39 +446,41 @@ export function AIStrategyPanel() {
               </Button>
             </div>
             <div className="h-[300px] w-full">
-              <PerformanceChart trades={trades?.filter(t => t.isAI) || []} />
-            </div>
-            <div className="space-y-2">
-              {trades?.filter(t => t.isAI).map((trade, index) => {
-                const tokenA = tokens?.find(t => t.id === trade.tokenAId);
-                const tokenB = tokens?.find(t => t.id === trade.tokenBId);
+                {/* Show all trades instead of filtering */}
+                <PerformanceChart trades={trades || []} />
+              </div>
+              <div className="space-y-2">
+                {trades?.map((trade, index) => {
+                  const tokenA = tokens?.find(t => t.id === trade.tokenAId);
+                  const tokenB = tokens?.find(t => t.id === trade.tokenBId);
 
-                return (
-                  <div key={index} className="flex items-center justify-between p-3 bg-muted rounded-lg">
-                    <div>
-                      <p className="font-medium">
-                        {trade.timestamp ? new Date(trade.timestamp).toLocaleString() : 'No timestamp'}
-                      </p>
-                      <p className="text-sm text-muted-foreground">
-                        {tokenA?.symbol} → {tokenB?.symbol}: {Number(trade.amountA).toLocaleString()} → {Number(trade.amountB).toLocaleString()}
-                      </p>
+                  return (
+                    <div key={index} className="flex items-center justify-between p-3 bg-muted rounded-lg">
+                      <div>
+                        <p className="font-medium">
+                          {trade.timestamp ? new Date(trade.timestamp).toLocaleString() : 'No timestamp'}
+                          {trade.isAI ? " (AI Trade)" : " (Manual Trade)"}
+                        </p>
+                        <p className="text-sm text-muted-foreground">
+                          {tokenA?.symbol} → {tokenB?.symbol}: {Number(trade.amountA).toLocaleString()} → {Number(trade.amountB).toLocaleString()}
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <p className={`font-medium ${
+                          Number(trade.amountB) > Number(trade.amountA)
+                            ? "text-green-500"
+                            : "text-red-500"
+                        }`}>
+                          {((Number(trade.amountB) - Number(trade.amountA)) / Number(trade.amountA) * 100).toFixed(2)}%
+                        </p>
+                        <p className="text-sm text-muted-foreground">
+                          {Number(trade.amountB) > Number(trade.amountA) ? "Profit" : "Loss"}
+                        </p>
+                      </div>
                     </div>
-                    <div className="text-right">
-                      <p className={`font-medium ${
-                        Number(trade.amountB) > Number(trade.amountA)
-                          ? "text-green-500"
-                          : "text-red-500"
-                      }`}>
-                        {((Number(trade.amountB) - Number(trade.amountA)) / Number(trade.amountA) * 100).toFixed(2)}%
-                      </p>
-                      <p className="text-sm text-muted-foreground">
-                        {Number(trade.amountB) > Number(trade.amountA) ? "Profit" : "Loss"}
-                      </p>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+                  );
+                })}
+              </div>
           </div>
 
           <div className="space-y-4">
