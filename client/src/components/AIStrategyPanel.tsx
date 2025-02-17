@@ -13,6 +13,8 @@ import { Slider } from "@/components/ui/slider";
 import { PerformanceChart } from "./PerformanceChart";
 import { web3Service } from "@/lib/web3Service"; // Import web3Service
 import { ethers } from "ethers";
+import { TokenPairSelector } from "./TokenPairSelector";
+
 const USDC_ADDRESS = "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"; // Example - replace with actual address
 const BTC_ADDRESS = "0x2260fac5e5542a773aa44fbcfedf7c193bc2c599"; // Example - replace with actual address
 
@@ -30,6 +32,8 @@ export function AIStrategyPanel() {
   const [maxSlippage, setMaxSlippage] = useState(1); // 1%
   const [isWalletConnected, setIsWalletConnected] = useState(false);
   const [isAutoTrading, setIsAutoTrading] = useState(false);
+  const [selectedTokenA, setSelectedTokenA] = useState<Token | null>(null);
+  const [selectedTokenB, setSelectedTokenB] = useState<Token | null>(null);
 
   const { data: strategies } = useQuery<Strategy[]>({ 
     queryKey: ["/api/strategies"]
@@ -323,127 +327,152 @@ export function AIStrategyPanel() {
 
             {isWalletConnected && (
               <>
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium">Max Slippage</span>
-                    <span className="text-sm text-muted-foreground">{maxSlippage}%</span>
-                  </div>
-                  <Slider
-                    value={[maxSlippage]}
-                    onValueChange={([value]) => setMaxSlippage(value)}
-                    max={5}
-                    step={0.1}
+                <div className="space-y-4">
+                  <TokenPairSelector
+                    selectedTokenA={selectedTokenA}
+                    selectedTokenB={selectedTokenB}
+                    onSelectTokenA={setSelectedTokenA}
+                    onSelectTokenB={setSelectedTokenB}
                   />
-                </div>
 
-                {/* Add Manual Trading Section */}
-                <div className="flex items-center justify-between py-4 border-t">
-                  <div>
-                    <p className="font-medium">Manual Trading</p>
-                    <p className="text-sm text-muted-foreground">
-                      Test trading functionality
-                    </p>
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium">Max Slippage</span>
+                      <span className="text-sm text-muted-foreground">{maxSlippage}%</span>
+                    </div>
+                    <Slider
+                      value={[maxSlippage]}
+                      onValueChange={([value]) => setMaxSlippage(value)}
+                      max={5}
+                      step={0.1}
+                    />
                   </div>
-                  <div className="flex gap-2">
-                    <Button 
-                      variant="outline"
-                      onClick={async () => {
-                        try {
-                          const amountIn = ethers.utils.parseUnits(allocatedFunds.toString(), 6);
-                          const result = await web3Service.executeSwap(
-                            USDC_ADDRESS,
-                            BTC_ADDRESS,
-                            amountIn,
-                            maxSlippage
-                          );
-                          if (result.success) {
-                            // Create trade record
-                            await apiRequest("POST", "/api/trades", {
-                              tokenAId: 3, // USDC token ID from database
-                              tokenBId: 4, // WBTC token ID from database
-                              amountA: allocatedFunds.toString(),
-                              amountB: (allocatedFunds * 0.98).toString(), // Simulated 2% slippage
-                              isAI: false
-                            });
 
-                            // Refresh trades data
-                            queryClient.invalidateQueries({ queryKey: ["/api/trades"] });
+                  <div className="flex items-center justify-between py-4 border-t">
+                    <div>
+                      <p className="font-medium">Manual Trading</p>
+                      <p className="text-sm text-muted-foreground">
+                        Test trading functionality
+                      </p>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button 
+                        variant="outline"
+                        onClick={async () => {
+                          try {
+                            if (!selectedTokenA || !selectedTokenB) {
+                              toast({
+                                title: "Select Token Pair",
+                                description: "Please select tokens for trading",
+                                variant: "destructive"
+                              });
+                              return;
+                            }
 
+                            const decimals = selectedTokenA.symbol === "USDC" ? 6 : 8;
+                            const amountIn = ethers.utils.parseUnits(allocatedFunds.toString(), decimals);
+                            const result = await web3Service.executeSwap(
+                              import.meta.env[`VITE_${selectedTokenA.symbol}_ADDRESS`],
+                              import.meta.env[`VITE_${selectedTokenB.symbol}_ADDRESS`],
+                              amountIn,
+                              maxSlippage
+                            );
+
+                            if (result.success) {
+                              await apiRequest("POST", "/api/trades", {
+                                tokenAId: selectedTokenA.id,
+                                tokenBId: selectedTokenB.id,
+                                amountA: allocatedFunds.toString(),
+                                amountB: (allocatedFunds * 0.98).toString(),
+                                isAI: false
+                              });
+
+                              queryClient.invalidateQueries({ queryKey: ["/api/trades"] });
+
+                              toast({
+                                title: "Trade Executed",
+                                description: `Manual Buy order completed. TX: ${result.txHash?.slice(0, 10)}...`,
+                              });
+                            }
+                          } catch (error) {
+                            console.error("Trade failed:", error);
                             toast({
-                              title: "Trade Executed",
-                              description: `Manual Buy order completed. TX: ${result.txHash?.slice(0, 10)}...`,
+                              title: "Trade Failed",
+                              description: error instanceof Error ? error.message : "Failed to execute trade",
+                              variant: "destructive"
                             });
                           }
-                        } catch (error) {
-                          console.error("Trade failed:", error);
-                          toast({
-                            title: "Trade Failed",
-                            description: error instanceof Error ? error.message : "Failed to execute trade",
-                            variant: "destructive"
-                          });
-                        }
-                      }}
-                      disabled={!allocatedFunds}
-                    >
-                      Buy BTC
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={async () => {
-                        try {
-                          const amountIn = ethers.utils.parseUnits(allocatedFunds.toString(), 8);
-                          const result = await web3Service.executeSwap(
-                            BTC_ADDRESS,
-                            USDC_ADDRESS,
-                            amountIn,
-                            maxSlippage
-                          );
-                          if (result.success) {
-                            // Create trade record
-                            await apiRequest("POST", "/api/trades", {
-                              tokenAId: 4, // WBTC token ID from database
-                              tokenBId: 3, // USDC token ID from database
-                              amountA: allocatedFunds.toString(),
-                              amountB: (allocatedFunds * 0.98).toString(), // Simulated 2% slippage
-                              isAI: false
-                            });
+                        }}
+                        disabled={!allocatedFunds || !selectedTokenA || !selectedTokenB}
+                      >
+                        Buy {selectedTokenB?.symbol || 'Token'}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        onClick={async () => {
+                          try {
+                            if (!selectedTokenA || !selectedTokenB) {
+                              toast({
+                                title: "Select Token Pair",
+                                description: "Please select tokens for trading",
+                                variant: "destructive"
+                              });
+                              return;
+                            }
 
-                            // Refresh trades data
-                            queryClient.invalidateQueries({ queryKey: ["/api/trades"] });
+                            const decimals = selectedTokenB.symbol === "USDC" ? 6 : 8;
+                            const amountIn = ethers.utils.parseUnits(allocatedFunds.toString(), decimals);
+                            const result = await web3Service.executeSwap(
+                              import.meta.env[`VITE_${selectedTokenB.symbol}_ADDRESS`],
+                              import.meta.env[`VITE_${selectedTokenA.symbol}_ADDRESS`],
+                              amountIn,
+                              maxSlippage
+                            );
 
+                            if (result.success) {
+                              await apiRequest("POST", "/api/trades", {
+                                tokenAId: selectedTokenB.id,
+                                tokenBId: selectedTokenA.id,
+                                amountA: allocatedFunds.toString(),
+                                amountB: (allocatedFunds * 0.98).toString(),
+                                isAI: false
+                              });
+
+                              queryClient.invalidateQueries({ queryKey: ["/api/trades"] });
+
+                              toast({
+                                title: "Trade Executed",
+                                description: `Manual Sell order completed. TX: ${result.txHash?.slice(0, 10)}...`,
+                              });
+                            }
+                          } catch (error) {
+                            console.error("Trade failed:", error);
                             toast({
-                              title: "Trade Executed",
-                              description: `Manual Sell order completed. TX: ${result.txHash?.slice(0, 10)}...`,
+                              title: "Trade Failed",
+                              description: error instanceof Error ? error.message : "Failed to execute trade",
+                              variant: "destructive"
                             });
                           }
-                        } catch (error) {
-                          console.error("Trade failed:", error);
-                          toast({
-                            title: "Trade Failed",
-                            description: error instanceof Error ? error.message : "Failed to execute trade",
-                            variant: "destructive"
-                          });
-                        }
-                      }}
-                      disabled={!allocatedFunds}
-                    >
-                      Sell BTC
-                    </Button>
+                        }}
+                        disabled={!allocatedFunds || !selectedTokenA || !selectedTokenB}
+                      >
+                        Sell {selectedTokenB?.symbol || 'Token'}
+                      </Button>
+                    </div>
                   </div>
-                </div>
-
-                <div className="flex items-center justify-between py-2">
-                  <div>
-                    <p className="font-medium">Auto-Trading</p>
-                    <p className="text-sm text-muted-foreground">
-                      {isAutoTrading ? "AI is actively trading" : "AI trading is paused"}
-                    </p>
+                  <div className="flex items-center justify-between py-2">
+                    <div>
+                      <p className="font-medium">Auto-Trading</p>
+                      <p className="text-sm text-muted-foreground">
+                        {isAutoTrading ? "AI is actively trading" : "AI trading is paused"}
+                      </p>
+                    </div>
+                    <Switch
+                      checked={isAutoTrading}
+                      onCheckedChange={toggleAutoTrading}
+                      disabled={!isWalletConnected || allocatedFunds <= 0}
+                    />
                   </div>
-                  <Switch
-                    checked={isAutoTrading}
-                    onCheckedChange={toggleAutoTrading}
-                    disabled={!isWalletConnected || allocatedFunds <= 0}
-                  />
                 </div>
               </>
             )}
