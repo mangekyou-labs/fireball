@@ -4,9 +4,7 @@ import { Token, Trade } from "@shared/schema";
 import { LiquidityPool } from "@/components/LiquidityPool";
 import { PerformanceChart } from "@/components/PerformanceChart";
 import { AIStrategyPanel } from "@/components/AIStrategyPanel";
-import { Link } from "wouter";
-import { Button } from "@/components/ui/button";
-import { ArrowRightCircle, BarChart2 } from "lucide-react";
+import { BarChart2 } from "lucide-react";
 
 export default function Dashboard() {
   const { data: tokens } = useQuery<Token[]>({ 
@@ -22,12 +20,6 @@ export default function Dashboard() {
       <div className="max-w-7xl mx-auto space-y-6">
         <div className="flex justify-between items-center">
           <h1 className="text-2xl font-bold">DEX Dashboard</h1>
-          <Link href="/swap">
-            <Button>
-              <ArrowRightCircle className="mr-2 h-4 w-4" />
-              Swap Tokens
-            </Button>
-          </Link>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
