@@ -43,11 +43,13 @@ export function AIStrategyPanel() {
   });
 
   const { data: trades } = useQuery<Trade[]>({
-    queryKey: ["/api/trades"]
+    queryKey: ["/api/trades"],
+    refetchInterval: 5000, // Refetch every 5 seconds
   });
 
   const { data: tokens } = useQuery<Token[]>({
-    queryKey: ["/api/tokens"]
+    queryKey: ["/api/tokens"],
+    refetchInterval: 5000, // Refetch every 5 seconds
   });
 
   const connectWallet = async (useTestWallet: boolean = false) => {
@@ -406,81 +408,42 @@ export function AIStrategyPanel() {
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="font-semibold">AI Trading History</h3>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={async () => {
-                  try {
-                    // Generate one mock trade
-                    const mockTradeData = {
-                      tokenAId: 1, // USDC
-                      tokenBId: 2, // WBTC
-                      amountA: "1000",
-                      amountB: "0.02",
-                      isAI: true
-                    };
-
-                    console.log('Pushing test trade to database:', mockTradeData);
-                    toast({
-                      title: "Test Trade Data",
-                      description: `Pushing to database: USDC: ${mockTradeData.amountA}, WBTC: ${mockTradeData.amountB}`,
-                    });
-
-                    await apiRequest("POST", "/api/trades", mockTradeData);
-                    await queryClient.invalidateQueries({ queryKey: ["/api/trades"] });
-
-                    toast({
-                      title: "Test Data Generated",
-                      description: "Mock trade has been added to the history",
-                    });
-                  } catch (error) {
-                    toast({
-                      title: "Error",
-                      description: "Failed to generate test trade",
-                      variant: "destructive",
-                    });
-                  }
-                }}
-              >
-                Generate Test Trades
-              </Button>
             </div>
             <div className="h-[300px] w-full">
-                {/* Show all trades instead of filtering */}
-                <PerformanceChart trades={trades || []} />
-              </div>
-              <div className="space-y-2">
-                {trades?.map((trade, index) => {
-                  const tokenA = tokens?.find(t => t.id === trade.tokenAId);
-                  const tokenB = tokens?.find(t => t.id === trade.tokenBId);
+              <PerformanceChart trades={trades || []} />
+            </div>
+            <div className="space-y-2">
+              {trades?.map((trade, index) => {
+                const tokenA = tokens?.find(t => t.id === trade.tokenAId);
+                const tokenB = tokens?.find(t => t.id === trade.tokenBId);
 
-                  return (
-                    <div key={index} className="flex items-center justify-between p-3 bg-muted rounded-lg">
-                      <div>
-                        <p className="font-medium">
-                          {trade.timestamp ? new Date(trade.timestamp).toLocaleString() : 'No timestamp'}
-                          {trade.isAI ? " (AI Trade)" : " (Manual Trade)"}
-                        </p>
-                        <p className="text-sm text-muted-foreground">
-                          {tokenA?.symbol} → {tokenB?.symbol}: {Number(trade.amountA).toLocaleString()} → {Number(trade.amountB).toLocaleString()}
-                        </p>
-                      </div>
-                      <div className="text-right">
-                        <p className={`font-medium ${
-                          Number(trade.amountB) > Number(trade.amountA)
-                            ? "text-green-500"
-                            : "text-red-500"
-                        }`}>
-                          {((Number(trade.amountB) - Number(trade.amountA)) / Number(trade.amountA) * 100).toFixed(2)}%
-                        </p>
-                        <p className="text-sm text-muted-foreground">
-                          {Number(trade.amountB) > Number(trade.amountA) ? "Profit" : "Loss"}
-                        </p>
-                      </div>
+                return (
+                  <div key={index} className="flex items-center justify-between p-3 bg-muted rounded-lg">
+                    <div>
+                      <p className="font-medium">
+                        {trade.timestamp ? new Date(trade.timestamp).toLocaleString() : 'No timestamp'}
+                        {trade.isAI ? " (AI Trade)" : " (Manual Trade)"}
+                      </p>
+                      <p className="text-sm text-muted-foreground">
+                        {tokenA?.symbol} → {tokenB?.symbol}: {Number(trade.amountA).toLocaleString()} → {Number(trade.amountB).toLocaleString()}
+                      </p>
                     </div>
-                  );
-                })}
-              </div>
+                    <div className="text-right">
+                      <p className={`font-medium ${
+                        Number(trade.amountB) > Number(trade.amountA)
+                          ? "text-green-500"
+                          : "text-red-500"
+                      }`}>
+                        {((Number(trade.amountB) - Number(trade.amountA)) / Number(trade.amountA) * 100).toFixed(2)}%
+                      </p>
+                      <p className="text-sm text-muted-foreground">
+                        {Number(trade.amountB) > Number(trade.amountA) ? "Profit" : "Loss"}
+                      </p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
 
           <div className="space-y-4">
