@@ -119,20 +119,16 @@ export function AIStrategyPanel() {
 
   useEffect(() => {
     async function updateAnalysis() {
-      if (!trades?.length || !tokens?.length) return;
-
-      const btcToken = tokens.find(t => t.symbol === "BTC");
-      if (!btcToken) return;
-
-      const currentPrice = Number(btcToken.price);
-      const priceHistory = trades.map(t => Number(t.amountB));
-      const volume = trades.reduce((sum, t) => sum + Number(t.amountA), 0);
-      const rsi = calculateRSI(priceHistory);
-
       try {
+        // Default values if no trades/tokens exist
+        const currentPrice = tokens?.find(t => t.symbol === "BTC")?.price || "50000.00";
+        const priceHistory = trades?.map(t => Number(t.amountB)) || [Number(currentPrice)];
+        const volume = trades?.reduce((sum, t) => sum + Number(t.amountA), 0) || 0;
+        const rsi = calculateRSI(priceHistory);
+
         setIsError(false);
         const newAnalysis = await analyzeMarketConditions(
-          currentPrice,
+          Number(currentPrice),
           priceHistory,
           volume,
           rsi
@@ -340,6 +336,76 @@ export function AIStrategyPanel() {
                   />
                 </div>
 
+                {/* Add Manual Trading Section */}
+                <div className="flex items-center justify-between py-4 border-t">
+                  <div>
+                    <p className="font-medium">Manual Trading</p>
+                    <p className="text-sm text-muted-foreground">
+                      Test trading functionality
+                    </p>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button 
+                      variant="outline"
+                      onClick={async () => {
+                        const amountIn = ethers.utils.parseUnits(allocatedFunds.toString(), 6);
+                        const result = await web3Service.executeSwap(
+                          USDC_ADDRESS,
+                          BTC_ADDRESS,
+                          amountIn,
+                          maxSlippage
+                        );
+                        if (result.success) {
+                          await apiRequest("POST", "/api/trades", {
+                            tokenAId: 1,
+                            tokenBId: 2,
+                            amountA: allocatedFunds.toString(),
+                            amountB: (allocatedFunds * (1 - maxSlippage / 100)).toString(),
+                            isAI: false
+                          });
+                          queryClient.invalidateQueries({ queryKey: ["/api/trades"] });
+                          toast({
+                            title: "Trade Executed",
+                            description: `Manual Buy order completed. TX: ${result.txHash?.slice(0, 10)}...`,
+                          });
+                        }
+                      }}
+                      disabled={!allocatedFunds}
+                    >
+                      Buy BTC
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={async () => {
+                        const amountIn = ethers.utils.parseUnits(allocatedFunds.toString(), 8);
+                        const result = await web3Service.executeSwap(
+                          BTC_ADDRESS,
+                          USDC_ADDRESS,
+                          amountIn,
+                          maxSlippage
+                        );
+                        if (result.success) {
+                          await apiRequest("POST", "/api/trades", {
+                            tokenAId: 2,
+                            tokenBId: 1,
+                            amountA: allocatedFunds.toString(),
+                            amountB: (allocatedFunds * (1 - maxSlippage / 100)).toString(),
+                            isAI: false
+                          });
+                          queryClient.invalidateQueries({ queryKey: ["/api/trades"] });
+                          toast({
+                            title: "Trade Executed",
+                            description: `Manual Sell order completed. TX: ${result.txHash?.slice(0, 10)}...`,
+                          });
+                        }
+                      }}
+                      disabled={!allocatedFunds}
+                    >
+                      Sell BTC
+                    </Button>
+                  </div>
+                </div>
+
                 <div className="flex items-center justify-between py-2">
                   <div>
                     <p className="font-medium">Auto-Trading</p>
@@ -357,38 +423,43 @@ export function AIStrategyPanel() {
             )}
           </div>
 
-          {analysis && (
-            <div className="bg-muted rounded-lg p-4">
-              <h3 className="font-semibold mb-2">Strategy Analysis</h3>
-              <p className="text-sm text-muted-foreground">{analysis.recommendation}</p>
-              <div className="mt-4 grid grid-cols-2 gap-4">
-                <div>
-                  <p className="text-sm font-medium">Confidence</p>
-                  <p className="text-2xl font-bold">{Math.round(analysis.confidence * 100)}%</p>
+          {/* Force display analysis even if trades are empty */}
+          <div className="bg-muted rounded-lg p-4">
+            <h3 className="font-semibold mb-2">Strategy Analysis</h3>
+            {analysis ? (
+              <>
+                <p className="text-sm text-muted-foreground">{analysis.recommendation}</p>
+                <div className="mt-4 grid grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-sm font-medium">Confidence</p>
+                    <p className="text-2xl font-bold">{Math.round(analysis.confidence * 100)}%</p>
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium">Action Signal</p>
+                    <p className={`text-2xl font-bold ${
+                      analysis.action === "BUY" 
+                        ? "text-green-500" 
+                        : analysis.action === "SELL" 
+                        ? "text-red-500" 
+                        : ""
+                    }`}>
+                      {analysis.action}
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-sm font-medium">Action Signal</p>
-                  <p className={`text-2xl font-bold ${
-                    analysis.action === "BUY" 
-                      ? "text-green-500" 
-                      : analysis.action === "SELL" 
-                      ? "text-red-500" 
-                      : ""
-                  }`}>
-                    {analysis.action}
-                  </p>
+                <div className="mt-4">
+                  <p className="text-sm font-medium mb-2">Reasoning:</p>
+                  <ul className="text-sm text-muted-foreground space-y-1">
+                    {analysis.reasoning.map((reason, index) => (
+                      <li key={index}>• {reason}</li>
+                    ))}
+                  </ul>
                 </div>
-              </div>
-              <div className="mt-4">
-                <p className="text-sm font-medium mb-2">Reasoning:</p>
-                <ul className="text-sm text-muted-foreground space-y-1">
-                  {analysis.reasoning.map((reason, index) => (
-                    <li key={index}>• {reason}</li>
-                  ))}
-                </ul>
-              </div>
-            </div>
-          )}
+              </>
+            ) : (
+              <p className="text-sm text-muted-foreground">Analyzing market conditions...</p>
+            )}
+          </div>
 
           <div className="space-y-4">
             <h3 className="font-semibold">AI Trading History</h3>
