@@ -1,6 +1,13 @@
 import { ethers } from 'ethers';
 import { toast } from '@/hooks/use-toast';
 
+// Add window.ethereum type declaration
+declare global {
+  interface Window {
+    ethereum?: any;
+  }
+}
+
 // ABI for a basic ERC20 token - add more functions as needed
 const ERC20_ABI = [
   "function balanceOf(address owner) view returns (uint256)",
@@ -14,7 +21,7 @@ const ROUTER_ABI = [
   "function getAmountsOut(uint amountIn, address[] calldata path) view returns (uint[] memory amounts)"
 ];
 
-// Contract addresses should be environment variables
+// Contract addresses from environment variables
 const ROUTER_ADDRESS = import.meta.env.VITE_ROUTER_ADDRESS;
 
 export class Web3Service {
@@ -26,15 +33,24 @@ export class Web3Service {
     try {
       // Check if MetaMask is installed
       if (!window.ethereum) {
-        throw new Error("Please install MetaMask to use this feature");
+        toast({
+          title: "MetaMask Required",
+          description: "Please install MetaMask to use this feature",
+          variant: "destructive",
+        });
+        return false;
       }
 
       // Request account access
       await window.ethereum.request({ method: 'eth_requestAccounts' });
-      
+
       this.provider = new ethers.providers.Web3Provider(window.ethereum);
       this.signer = this.provider.getSigner();
       this.router = new ethers.Contract(ROUTER_ADDRESS, ROUTER_ABI, this.signer);
+
+      // Get connected account to verify
+      const address = await this.signer.getAddress();
+      console.log("Connected to address:", address);
 
       return true;
     } catch (error: unknown) {
@@ -61,7 +77,7 @@ export class Web3Service {
 
       // Get token contracts
       const tokenInContract = new ethers.Contract(tokenIn, ERC20_ABI, this.signer);
-      
+
       // Approve router to spend tokens
       const approvalTx = await tokenInContract.approve(ROUTER_ADDRESS, amountIn);
       await approvalTx.wait();
@@ -104,7 +120,7 @@ export class Web3Service {
       const token = new ethers.Contract(tokenAddress, ERC20_ABI, this.provider);
       const address = await this.signer.getAddress();
       const balance = await token.balanceOf(address);
-      
+
       return balance.toString();
     } catch (error: unknown) {
       console.error("Failed to get token balance:", error);
