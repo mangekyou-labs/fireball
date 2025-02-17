@@ -4,7 +4,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { ArrowDownUp } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 
 interface TokenPairSelectorProps {
@@ -12,6 +12,10 @@ interface TokenPairSelectorProps {
   selectedTokenB: Token | null;
   onSelectTokenA: (token: Token | null) => void;
   onSelectTokenB: (token: Token | null) => void;
+  amountA: string;
+  amountB: string;
+  onAmountAChange: (amount: string) => void;
+  onAmountBChange: (amount: string) => void;
 }
 
 export function TokenPairSelector({
@@ -19,14 +23,29 @@ export function TokenPairSelector({
   selectedTokenB,
   onSelectTokenA,
   onSelectTokenB,
+  amountA,
+  amountB,
+  onAmountAChange,
+  onAmountBChange,
 }: TokenPairSelectorProps) {
   const { toast } = useToast();
-  const [amountA, setAmountA] = useState<string>("");
-  const [amountB, setAmountB] = useState<string>("");
 
   const { data: tokens } = useQuery<Token[]>({ 
     queryKey: ["/api/tokens"]
   });
+
+  // Auto-convert amount based on token prices
+  useEffect(() => {
+    if (selectedTokenA && selectedTokenB && amountA) {
+      const priceA = parseFloat(selectedTokenA.price);
+      const priceB = parseFloat(selectedTokenB.price);
+      if (!isNaN(priceA) && !isNaN(priceB)) {
+        const valueInUSD = parseFloat(amountA) * priceA;
+        const convertedAmount = valueInUSD / priceB;
+        onAmountBChange(convertedAmount.toFixed(8));
+      }
+    }
+  }, [selectedTokenA, selectedTokenB, amountA, onAmountBChange]);
 
   const handleSwap = () => {
     if (!selectedTokenA || !selectedTokenB || !amountA) {
@@ -72,9 +91,15 @@ export function TokenPairSelector({
               type="number"
               placeholder="0.0"
               value={amountA}
-              onChange={(e) => setAmountA(e.target.value)}
+              onChange={(e) => onAmountAChange(e.target.value)}
+              className="flex-1"
             />
           </div>
+          {selectedTokenA && (
+            <p className="text-sm text-muted-foreground">
+              Price: ${parseFloat(selectedTokenA.price).toLocaleString()}
+            </p>
+          )}
         </div>
 
         <div className="flex justify-center">
@@ -83,11 +108,11 @@ export function TokenPairSelector({
             size="icon"
             onClick={() => {
               const tempToken = selectedTokenA;
+              const tempAmount = amountA;
               onSelectTokenA(selectedTokenB);
               onSelectTokenB(tempToken);
-              const tempAmount = amountA;
-              setAmountA(amountB);
-              setAmountB(tempAmount);
+              onAmountAChange(amountB);
+              onAmountBChange(tempAmount);
             }}
           >
             <ArrowDownUp className="h-4 w-4" />
@@ -118,9 +143,16 @@ export function TokenPairSelector({
               type="number"
               placeholder="0.0"
               value={amountB}
-              onChange={(e) => setAmountB(e.target.value)}
+              onChange={(e) => onAmountBChange(e.target.value)}
+              className="flex-1"
+              readOnly
             />
           </div>
+          {selectedTokenB && (
+            <p className="text-sm text-muted-foreground">
+              Price: ${parseFloat(selectedTokenB.price).toLocaleString()}
+            </p>
+          )}
         </div>
       </div>
 
