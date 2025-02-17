@@ -40,7 +40,41 @@ export class MemStorage implements IStorage {
       { symbol: "USDT", name: "Tether", price: "1.00", liquidity: "5000000" }
     ];
 
+    const mockStrategies: InsertStrategy[] = [
+      { name: "RSI Reversal", rsiThreshold: "70", enabled: true },
+      { name: "Moving Average Cross", rsiThreshold: "65", enabled: false },
+      { name: "Volume Breakout", rsiThreshold: "75", enabled: false }
+    ];
+
+    // Create mock tokens
     mockTokens.forEach(token => this.createToken(token));
+
+    // Create mock strategies
+    mockStrategies.forEach(strategy => this.createStrategy(strategy));
+
+    // Create mock trades
+    const mockTrades: InsertTrade[] = [];
+    const baseTimestamp = new Date();
+    baseTimestamp.setHours(baseTimestamp.getHours() - 24); // Start 24 hours ago
+
+    for (let i = 0; i < 20; i++) {
+      const timestamp = new Date(baseTimestamp);
+      timestamp.setHours(timestamp.getHours() + i);
+
+      const isProfit = Math.random() > 0.3; // 70% win rate
+      const volume = 10000 + Math.random() * 50000;
+      const profitLoss = isProfit ? 1 + (Math.random() * 0.05) : 1 - (Math.random() * 0.03);
+
+      mockTrades.push({
+        tokenAId: 1,
+        tokenBId: 2,
+        amountA: volume.toString(),
+        amountB: (volume * profitLoss).toString(),
+        isAI: true
+      });
+    }
+
+    mockTrades.forEach(trade => this.createTrade(trade));
   }
 
   async getTokens(): Promise<Token[]> {
@@ -67,12 +101,20 @@ export class MemStorage implements IStorage {
   }
 
   async getTrades(): Promise<Trade[]> {
-    return Array.from(this.trades.values());
+    return Array.from(this.trades.values())
+      .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
   }
 
   async createTrade(trade: InsertTrade): Promise<Trade> {
     const id = this.currentIds.trade++;
-    const newTrade = { ...trade, id, timestamp: new Date() };
+    const newTrade: Trade = {
+      ...trade,
+      id,
+      timestamp: new Date(),
+      tokenAId: trade.tokenAId ?? 1,
+      tokenBId: trade.tokenBId ?? 2,
+      isAI: trade.isAI ?? false
+    };
     this.trades.set(id, newTrade);
     return newTrade;
   }
@@ -83,7 +125,11 @@ export class MemStorage implements IStorage {
 
   async createStrategy(strategy: InsertStrategy): Promise<Strategy> {
     const id = this.currentIds.strategy++;
-    const newStrategy = { ...strategy, id };
+    const newStrategy: Strategy = {
+      ...strategy,
+      id,
+      enabled: strategy.enabled ?? false,
+    };
     this.strategies.set(id, newStrategy);
     return newStrategy;
   }
