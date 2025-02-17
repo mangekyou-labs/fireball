@@ -3,7 +3,7 @@ import OpenAI from "openai";
 let openai: OpenAI | null = null;
 
 function initializeOpenAI() {
-  const apiKey = window.process?.env?.VITE_OPENAI_API_KEY;
+  const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
   if (!apiKey) {
     console.warn("OpenAI API key not found. AI features will be disabled.");
     return null;

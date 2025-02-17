@@ -6,27 +6,6 @@ const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
-// Pass OpenAI API key to frontend
-const openAiKey = process.env.OPENAI_API_KEY;
-if (!openAiKey) {
-  console.warn("Warning: OPENAI_API_KEY is not set. AI features will be disabled.");
-}
-
-app.use((req, res, next) => {
-  // Add OpenAI API key to frontend environment
-  if (req.path === "/") {
-    const html = `
-      <script>
-        window.process = window.process || {};
-        window.process.env = window.process.env || {};
-        window.process.env.VITE_OPENAI_API_KEY = "${openAiKey || ''}";
-      </script>
-    `;
-    res.locals.preloadScripts = html;
-  }
-  next();
-});
-
 app.use((req, res, next) => {
   const start = Date.now();
   const path = req.path;
