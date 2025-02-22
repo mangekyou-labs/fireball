@@ -147,7 +147,7 @@ export function AIStrategyPanel() {
           setIsError(true);
           toast({
             title: "AI Analysis Unavailable",
-            description: "Please ensure your OpenAI API key is properly configured.",
+            description: "Please ensure your DeepSeek API key is properly configured.",
             variant: "destructive",
           });
         } else {

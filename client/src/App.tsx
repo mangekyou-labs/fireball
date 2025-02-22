@@ -11,11 +11,11 @@ function Router() {
   const { toast } = useToast();
 
   useEffect(() => {
-    // Check if OpenAI API key is configured
-    if (!import.meta.env.VITE_OPENAI_API_KEY) {
+    // Check if DeepSeek API key is configured
+    if (!import.meta.env.VITE_DEEPSEEK_API_KEY) {
       toast({
         title: "Configuration Error",
-        description: "OpenAI API key is not properly configured. AI features will be disabled.",
+        description: "DeepSeek API key is not properly configured. AI features will be disabled.",
         variant: "destructive",
       });
     }

@@ -32,4 +32,6 @@ export default defineConfig({
     outDir: path.resolve(__dirname, "dist/public"),
     emptyOutDir: true,
   },
+  envDir: path.resolve(__dirname),
+  envPrefix: "VITE_",
 });

@@ -3,19 +3,27 @@ import OpenAI from "openai";
 let openai: OpenAI | null = null;
 
 function initializeOpenAI() {
-  const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
+  console.log('Environment variables:', {
+    VITE_DEEPSEEK_API_KEY: import.meta.env.VITE_DEEPSEEK_API_KEY ? 'Present' : 'Missing',
+    NODE_ENV: import.meta.env.MODE,
+    DEV: import.meta.env.DEV,
+    PROD: import.meta.env.PROD,
+  });
+  
+  const apiKey = import.meta.env.VITE_DEEPSEEK_API_KEY;
   if (!apiKey) {
-    console.error("OpenAI API key is missing. Check your .env file configuration.");
+    console.error("DeepSeek API key is missing. Check your .env file configuration.");
     return null;
   }
 
   try {
     return new OpenAI({
       apiKey,
+      baseURL: 'https://api.deepseek.com/v1',
       dangerouslyAllowBrowser: true
     });
   } catch (error) {
-    console.error("Failed to initialize OpenAI client:", error);
+    console.error("Failed to initialize DeepSeek client:", error);
     return null;
   }
 }
@@ -65,7 +73,7 @@ Provide analysis in JSON format:
 
   try {
     const response = await openai.chat.completions.create({
-      model: "gpt-4-turbo-preview",
+      model: "deepseek-chat",
       messages: [
         {
           role: "system",
@@ -77,11 +85,12 @@ Provide analysis in JSON format:
         },
       ],
       response_format: { type: "json_object" },
+      temperature: 0.7,
     });
 
     const content = response.choices[0].message.content;
     if (!content) {
-      throw new Error("Empty response from OpenAI");
+      throw new Error("Empty response from DeepSeek API");
     }
 
     const analysis = JSON.parse(content) as MarketAnalysis;
@@ -125,7 +134,7 @@ Focus on:
 
   try {
     const response = await openai.chat.completions.create({
-      model: "gpt-4-turbo-preview",
+      model: "deepseek-chat",
       messages: [
         {
           role: "system",
@@ -136,11 +145,12 @@ Focus on:
           content: prompt,
         },
       ],
+      temperature: 0.7,
     });
 
     const content = response.choices[0].message.content;
     if (!content) {
-      throw new Error("Empty response from OpenAI");
+      throw new Error("Empty response from DeepSeek API");
     }
 
     return content;
