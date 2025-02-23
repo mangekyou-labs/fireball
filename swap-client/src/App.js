@@ -9,7 +9,7 @@ import CurrencyField from './components/CurrencyField';
 import { GearFill } from 'react-bootstrap-icons';
 import BeatLoader from 'react-spinners/BeatLoader';
 
-import { getWethContract, getWbtcContract, getPrice, runSwap } from './AlphaRouterService';
+import { getUsdcContract, getWbtcContract, getPrice, runSwap, USDC, WBTC } from './AlphaRouterService';
 
 function App() {
   const [provider, setProvider] = useState(undefined)
@@ -20,56 +20,155 @@ function App() {
   const [deadlineMinutes, setDeadlineMinutes] = useState(10)
   const [showModal, setShowModal] = useState(false)
 
-  const [inputAmount, setInputAmount] = useState(undefined)
+  const [inputAmount, setInputAmount] = useState(0)
   const [outputAmount, setOutputAmount] = useState(undefined)
   const [transaction, setTransaction] = useState(undefined)
   const [loading, setLoading] = useState(false)
   const [ratio, setRatio] = useState(undefined)
 
-  const [wethContract, setWethContract] = useState(undefined)
+  const [usdcContract, setUsdcContract] = useState(undefined)
   const [wbtcContract, setWbtcContract] = useState(undefined)
 
-  const [wethAmount, setWethAmount] = useState(undefined)
-  const [wbtcAmount, setWbtcAmount] = useState(undefined)
+  const [usdcAmount, setUsdcAmount] = useState(0)
+  const [wbtcAmount, setWbtcAmount] = useState(0)
 
-  useEffect(() => {
-    const onLoad = async () => {
-      const provider = new ethers.providers.Web3Provider(window.ethereum)
-      setProvider(provider)
+  // Chain configuration
+  const targetNetwork = {
+    chainId: `0x${Number(57054).toString(16)}`, // Convert to hex
+    chainName: 'Sonic Blaze Testnet',
+    nativeCurrency: {
+      name: 'ETH',
+      symbol: 'ETH',
+      decimals: 18
+    },
+    rpcUrls: [process.env.REACT_APP_RPC_URL_TESTNET],
+  };
 
-      const wethContract = getWethContract()
-      setWethContract(wethContract)
+  // Switch to the correct network
+  const switchNetwork = async () => {
+    if (!window.ethereum) return false;
 
-      const wbtcContract = getWbtcContract()
-      setWbtcContract(wbtcContract)
+    try {
+      // Try to switch to the network
+      await window.ethereum.request({
+        method: 'wallet_switchEthereumChain',
+        params: [{ chainId: targetNetwork.chainId }],
+      });
+      return true;
+    } catch (switchError) {
+      // This error code indicates that the chain has not been added to MetaMask.
+      if (switchError.code === 4902) {
+        try {
+          await window.ethereum.request({
+            method: 'wallet_addEthereumChain',
+            params: [targetNetwork],
+          });
+          return true;
+        } catch (addError) {
+          console.error('Error adding chain:', addError);
+          return false;
+        }
+      }
+      console.error('Error switching chain:', switchError);
+      return false;
     }
-    onLoad()
-  }, [])
+  };
 
-  const getSigner = async provider => {
-    await provider.send('eth_requestAccounts', [])
-    const signer = provider.getSigner()
-    setSigner(signer)
-  }
+  // Initialize contracts once
+  useEffect(() => {
+    const usdcContract = getUsdcContract();
+    const wbtcContract = getWbtcContract();
+    setUsdcContract(usdcContract);
+    setWbtcContract(wbtcContract);
+  }, []);
 
-  const isConnected = () => signer !== undefined
+  // Get token balances
+  const getBalances = async (address) => {
+    if (!address || !usdcContract || !wbtcContract) return;
 
-  const refreshWalletAddress = () => {
-    signer.getAddress()
-      .then(address => {
-        setSignerAddress(address)
-
-        wethContract.balanceOf(address)
-          .then(balance => setWethAmount(Number(ethers.utils.formatEther(balance))))
-
+    try {
+      const [usdcBalance, wbtcBalance] = await Promise.all([
+        usdcContract.balanceOf(address),
         wbtcContract.balanceOf(address)
-          .then(balance => setWbtcAmount(Number(ethers.utils.formatEther(balance))))
-      })
-  }
+      ]);
 
-  if (signer !== undefined) {
-    refreshWalletAddress()
-  }
+      setUsdcAmount(Number(ethers.utils.formatUnits(usdcBalance, 6)));
+      setWbtcAmount(Number(ethers.utils.formatEther(wbtcBalance)));
+    } catch (error) {
+      console.error("Error fetching balances:", error);
+    }
+  };
+
+  // Handle account changes
+  const accountChangeHandler = async (account) => {
+    if (!account) return;
+
+    try {
+      // Ensure we're on the correct network first
+      const switched = await switchNetwork();
+      if (!switched) {
+        alert("Please switch to Sonic Blaze network!");
+        return;
+      }
+
+      // Update signer and address
+      const provider = new ethers.providers.Web3Provider(window.ethereum);
+      const signer = provider.getSigner();
+      
+      setProvider(provider);
+      setSigner(signer);
+      setSignerAddress(account);
+
+      // Get token balances
+      await getBalances(account);
+    } catch (error) {
+      console.error("Error in account change:", error);
+    }
+  };
+
+  // Connect wallet button handler
+  const connectWallet = async () => {
+    if (!window.ethereum) {
+      alert("Please install MetaMask!");
+      return;
+    }
+
+    try {
+      // First, ensure we're on the correct network
+      const switched = await switchNetwork();
+      if (!switched) {
+        alert("Please switch to Sonic Blaze network!");
+        return;
+      }
+
+      // Request account access
+      const accounts = await window.ethereum.request({ 
+        method: "eth_requestAccounts" 
+      });
+      
+      // Handle the first account
+      if (accounts.length > 0) {
+        await accountChangeHandler(accounts[0]);
+
+        // Setup account change listener
+        window.ethereum.on('accountsChanged', (accounts) => {
+          if (accounts.length > 0) {
+            accountChangeHandler(accounts[0]);
+          } else {
+            // Handle disconnection
+            setSigner(undefined);
+            setSignerAddress(undefined);
+            setUsdcAmount(0);
+            setWbtcAmount(0);
+          }
+        });
+      }
+    } catch (error) {
+      console.error("Error connecting to MetaMask:", error);
+    }
+  };
+
+  const isConnected = () => signer !== undefined && signerAddress !== undefined;
 
   const getSwapPrice = (inputAmount) => {
     setLoading(true)
@@ -77,6 +176,8 @@ function App() {
 
     const price = getPrice(
       inputAmount,
+      WBTC,
+      USDC,
       slippageAmount,
       Math.floor(Date.now() / 1000) + (60 * deadlineMinutes),
       signerAddress
@@ -89,7 +190,6 @@ function App() {
       }
     )
   }
-  
 
   return (
     <div className="App">
@@ -107,7 +207,7 @@ function App() {
               provider={provider}
               isConnected={isConnected}
               signerAddress={signerAddress}
-              getSigner={getSigner}
+              getSigner={connectWallet}
             />
           </div>
 
@@ -115,7 +215,6 @@ function App() {
             <PageButton name={"..."} isBold={true} />
           </div>
         </div>
-
       </div>
 
       <div className="appBody">
@@ -139,17 +238,17 @@ function App() {
           <div className="swapBody">
             <CurrencyField
               field="input"
-              tokenName="WETH"
+              tokenName="WBTC"
               getSwapPrice={getSwapPrice}
               signer={signer}
-              balance={wethAmount}
+              balance={wbtcAmount}
             />
             <CurrencyField
               field="output"
-              tokenName="WBTC"
+              tokenName="USDC"
               value={outputAmount}
               signer={signer}
-              balance={wbtcAmount}
+              balance={usdcAmount}
               spinner={BeatLoader}
               loading={loading}
             />
@@ -158,7 +257,7 @@ function App() {
           <div className="ratioContainer">
             {ratio && (
               <>
-                {`1 WBTC = ${ratio} WETH`}
+                {`1 WBTC = ${ratio} USDC`}
               </>
             )}
           </div>
@@ -172,10 +271,10 @@ function App() {
                 Swap
               </div>
             ) : (
-                <div
-                  className="swapButton"
-                  onClick={() => getSigner(provider)}
-                >
+              <div
+                className="swapButton"
+                onClick={connectWallet}
+              >
                 Connect Wallet
               </div>
             )}

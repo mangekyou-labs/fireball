@@ -10,7 +10,7 @@ const IUniswapV3FactoryABI = require('@uniswap/v3-core/artifacts/contracts/inter
 const V3_SWAP_ROUTER_ADDRESS = '0xe48B26D66c24bDB34997B04168a8B5081a5f0cE4'
 const V3_FACTORY_ADDRESS = '0x474490684eb93900F0285843cc7C75879dB3ed5F'
 const RPC_URL_TESTNET = process.env.REACT_APP_RPC_URL_TESTNET
-const POOL_FEE = 3000 // 0.3%
+const POOL_FEE = 500 // 0.05%
 
 // Custom chain ID
 const chainId = 57054
@@ -37,7 +37,7 @@ const WBTC = new Token(
 const USDT = new Token(
     chainId,
     '0xBd038787f70c94757543A99e1400857B6B9A28f3',
-    6,
+    18,
     'USDT',
     'Tether USD'
 )
@@ -45,7 +45,7 @@ const USDT = new Token(
 const USDC = new Token(
     chainId,
     '0xeE74C8F018380EfF556c113C89E8A14434E7A07F',
-    6,
+    18,
     'USDC',
     'Circle USD'
 )
@@ -53,6 +53,8 @@ const USDC = new Token(
 // Contract instances
 const getWethContract = () => new ethers.Contract(WETH.address, ERC20ABI, web3Provider)
 const getWbtcContract = () => new ethers.Contract(WBTC.address, ERC20ABI, web3Provider)
+const getUsdcContract = () => new ethers.Contract(USDC.address, ERC20ABI, web3Provider)
+
 const factoryContract = new ethers.Contract(V3_FACTORY_ADDRESS, IUniswapV3FactoryABI, web3Provider)
 
 // Get pool data
@@ -112,26 +114,36 @@ const getPool = async (tokenA, tokenB) => {
     )
 }
 
-const getPrice = async (inputAmount, slippageAmount, deadline, walletAddress) => {
-    const pool = await getPool(WETH, WBTC)
-    const wei = ethers.utils.parseUnits(inputAmount.toString(), WETH.decimals)
-    const currencyAmount = CurrencyAmount.fromRawAmount(WETH, JSBI.BigInt(wei))
+const getPrice = async (inputAmount, inputToken, outputToken, slippageAmount, deadline, walletAddress) => {
+    if (inputAmount === undefined || inputAmount === "") {
+        console.error("inputAmount is undefined or empty")
+        return [undefined, undefined, undefined]
+    }
+
+    if (walletAddress === undefined || walletAddress === "") {
+        console.error("walletAddress is undefined or empty")
+        return [undefined, undefined, undefined]
+    }
+
+    const wei = ethers.utils.parseUnits(inputAmount.toString(), inputToken.decimals)
+    const pool = await getPool(inputToken, outputToken)
+    // const currencyAmount = CurrencyAmount.fromRawAmount(WBTC, JSBI.BigInt(wei))
 
     // Calculate output amount
-    const outputAmount = pool.token1Price.quote(currencyAmount)
-    const minimumOutputAmount = outputAmount.multiply(
-        new Percent(100 - Number(slippageAmount), 100)
-    )
+    const outputAmount = inputAmount * parseFloat(pool.token1Price.toFixed(3))
+    const minimumOutputAmount = outputAmount * (1 - Number(slippageAmount) / 100)
+
+    const parsedAmountOut = ethers.utils.parseUnits(minimumOutputAmount.toString(), outputToken.decimals)
 
     // Prepare swap parameters
     const params = {
-        tokenIn: WETH.address,
-        tokenOut: WBTC.address,
+        tokenIn: inputToken.address,
+        tokenOut: outputToken.address,
         fee: POOL_FEE,
         recipient: walletAddress,
         deadline: deadline,
         amountIn: wei,
-        amountOutMinimum: minimumOutputAmount.quotient.toString(),
+        amountOutMinimum: parsedAmountOut,
         sqrtPriceLimitX96: 0
     }
 
@@ -147,18 +159,15 @@ const getPrice = async (inputAmount, slippageAmount, deadline, walletAddress) =>
         gasLimit: ethers.utils.hexlify(1000000)
     }
 
-    const quoteAmountOut = ethers.utils.formatUnits(
-        outputAmount.quotient.toString(),
-        WBTC.decimals
-    )
-    const ratio = (Number(inputAmount) / Number(quoteAmountOut)).toFixed(3)
+    const ratio = (Number(inputAmount) / Number(minimumOutputAmount)).toFixed(3)
 
-    return [transaction, quoteAmountOut, ratio]
+    return [transaction, minimumOutputAmount, ratio]
 }
 
 const runSwap = async (transaction, signer) => {
+    console.log(signer);
     const approvalAmount = ethers.utils.parseUnits('10', 18).toString()
-    const contract0 = getWethContract()
+    const contract0 = getWbtcContract()
     await contract0.connect(signer).approve(
         V3_SWAP_ROUTER_ADDRESS,
         approvalAmount
@@ -172,6 +181,7 @@ module.exports = {
     runSwap,
     getWethContract,
     getWbtcContract,
+    getUsdcContract,
     WETH,
     WBTC,
     USDT,

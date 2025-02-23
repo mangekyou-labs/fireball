@@ -70,6 +70,15 @@ async function main() {
   let addresses = [
     `USDT_USDC_500=${usdtUsdc500}`
   ]
+
+  // const wethWbtc500 = await deployPool(WETH_ADDRESS, WRAPPED_BITCOIN_ADDRESS, 500, encodePriceSqrt(1, 1))
+
+  // addresses.push(`WETH_WBT_500=${wethWbtc500}`)
+
+  const wbtcUsdc500 = await deployPool(WRAPPED_BITCOIN_ADDRESS, USDC_ADDRESS, 500, encodePriceSqrt(1, 1))
+
+  addresses.push(`WBTC_USDC_500=${wbtcUsdc500}`)
+
   const data = '\n' + addresses.join('\n')
   const writeFile = promisify(fs.appendFile);
   const filePath = '.env';

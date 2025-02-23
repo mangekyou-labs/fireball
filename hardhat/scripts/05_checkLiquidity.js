@@ -1,5 +1,6 @@
 require('dotenv').config()
 USDT_USDC_500 = process.env.USDT_USDC_500
+WBTC_USDC_500 = process.env.WBTC_USDC_500
 
 const { Contract } = require("ethers")
 const UniswapV3Pool = require("@uniswap/v3-core/artifacts/contracts/UniswapV3Pool.sol/UniswapV3Pool.json")
@@ -28,7 +29,11 @@ async function main() {
   const poolContract = new Contract(USDT_USDC_500, UniswapV3Pool.abi, provider)
 
   const poolData = await getPoolData(poolContract)
-  console.log('poolData', poolData)
+  console.log('usdtUsdcPoolData', poolData)
+
+  const wbtcUsdcPoolContract = new Contract(WBTC_USDC_500, UniswapV3Pool.abi, provider)
+  const wbtcUsdcPoolData = await getPoolData(wbtcUsdcPoolContract)
+  console.log('wbtcUsdcPoolData', wbtcUsdcPoolData)
 }
 
 
