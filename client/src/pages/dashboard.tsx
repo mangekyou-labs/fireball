@@ -1,4 +1,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Link } from "wouter";
+import { Button } from "@/components/ui/button";
+import { ArrowRight } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { Token, Trade } from "@shared/schema";
 import { LiquidityPool } from "@/components/LiquidityPool";
@@ -17,12 +20,18 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-screen bg-background text-foreground p-6">
-      <div className="max-w-7xl mx-auto space-y-6">
-        <div className="flex justify-between items-center">
+      <div className="max-w-7xl mx-auto">
+        <div className="flex justify-between items-center mb-8">
           <h1 className="text-2xl font-bold">DEX Dashboard</h1>
+          <Link href="/swap">
+            <Button>
+              Swap Tokens
+              <ArrowRight className="ml-2 h-4 w-4" />
+            </Button>
+          </Link>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
           <Card>
             <CardHeader>
               <CardTitle>Total Volume</CardTitle>
@@ -57,13 +66,10 @@ export default function Dashboard() {
           </Card>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center">
-                <BarChart2 className="mr-2 h-5 w-5" />
-                Performance
-              </CardTitle>
+              <CardTitle>Performance</CardTitle>
             </CardHeader>
             <CardContent>
               <PerformanceChart trades={trades ?? []} />
@@ -80,7 +86,18 @@ export default function Dashboard() {
           </Card>
         </div>
 
-        <AIStrategyPanel />
+        <div className="mt-8">
+          <Card>
+            <CardHeader>
+              <CardTitle>AI Trading Strategy</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center justify-center text-muted-foreground">
+                <p>AI analysis unavailable. Please check API configuration.</p>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
       </div>
     </div>
   );

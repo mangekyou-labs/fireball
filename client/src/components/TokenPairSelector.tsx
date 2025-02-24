@@ -11,7 +11,7 @@ import { ethers } from "ethers";
 import { web3Service } from "@/services/web3";
 import { apiRequest } from "@/services/api";
 import { queryClient } from "@/utils/query-client";
-
+import { WETH, WBTC, USDC, USDT } from "@/lib/uniswap/AlphaRouterService";
 
 interface TokenPairSelectorProps {
   selectedTokenA: Token | null;
@@ -39,23 +39,42 @@ export function TokenPairSelector({
   onModeChange,
 }: TokenPairSelectorProps) {
   const { toast } = useToast();
+  const [isLoading, setIsLoading] = useState(false);
 
-  const { data: tokens } = useQuery<Token[]>({ 
-    queryKey: ["/api/tokens"]
+  // Get token list from API
+  const { data: tokens } = useQuery<Token[]>({
+    queryKey: ["/api/tokens"],
+    refetchInterval: 5000, // Refetch every 5 seconds
   });
 
-  // Auto-convert amount based on token prices - now works in both modes
-  useEffect(() => {
-    if (selectedTokenA && selectedTokenB && amountA) {
-      const priceA = parseFloat(selectedTokenA.price);
-      const priceB = parseFloat(selectedTokenB.price);
-      if (!isNaN(priceA) && !isNaN(priceB)) {
-        const valueInUSD = parseFloat(amountA) * priceA;
-        const convertedAmount = valueInUSD / priceB;
-        onAmountBChange(convertedAmount.toFixed(8));
-      }
+  // Get token addresses for the selected tokens
+  const getTokenAddress = (token: Token | null) => {
+    if (!token) return null;
+    switch (token.symbol) {
+      case "WETH":
+        return WETH.address;
+      case "WBTC":
+        return WBTC.address;
+      case "USDC":
+        return USDC.address;
+      case "USDT":
+        return USDT.address;
+      default:
+        return null;
     }
-  }, [selectedTokenA, selectedTokenB, amountA, onAmountBChange]);
+  };
+
+  // Get token decimals for the selected tokens
+  const getTokenDecimals = (token: Token | null) => {
+    if (!token) return 18;
+    switch (token.symbol) {
+      case "USDC":
+      case "USDT":
+        return 6;
+      default:
+        return 18;
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -162,52 +181,53 @@ export function TokenPairSelector({
       </div>
 
       {isManualMode && (
-        <Button className="w-full" onClick={async () => {
-          try {
-            if (!selectedTokenA || !selectedTokenB || !amountA) {
-              toast({
-                title: "Invalid Swap",
-                description: "Please select tokens and enter an amount",
-                variant: "destructive",
-              });
-              return;
-            }
+        <Button 
+          className="w-full" 
+          onClick={async () => {
+            try {
+              if (!selectedTokenA || !selectedTokenB || !amountA) {
+                toast({
+                  title: "Invalid Swap",
+                  description: "Please select tokens and enter an amount",
+                  variant: "destructive",
+                });
+                return;
+              }
 
-            const decimals = selectedTokenA.symbol === "USDC" ? 6 : 8;
-            const amountIn = ethers.utils.parseUnits(amountA, decimals);
+              const tokenInAddress = getTokenAddress(selectedTokenA);
+              const tokenOutAddress = getTokenAddress(selectedTokenB);
 
-            // Log the swap attempt
-            console.log('Attempting swap with params:', {
-              tokenIn: import.meta.env[`VITE_${selectedTokenA.symbol}_ADDRESS`],
-              tokenOut: import.meta.env[`VITE_${selectedTokenB.symbol}_ADDRESS`],
-              amountIn: amountIn.toString(),
-              slippage: 0.5
-            });
+              if (!tokenInAddress || !tokenOutAddress) {
+                toast({
+                  title: "Invalid Tokens",
+                  description: "Selected tokens are not supported",
+                  variant: "destructive",
+                });
+                return;
+              }
 
-            const result = await web3Service.executeSwap(
-              import.meta.env[`VITE_${selectedTokenA.symbol}_ADDRESS`],
-              import.meta.env[`VITE_${selectedTokenB.symbol}_ADDRESS`],
-              amountIn,
-              0.5 // Default slippage
-            );
+              setIsLoading(true);
 
-            if (result.success) {
-              // Match the exact format of test trades
-              const tradeData = {
-                tokenAId: selectedTokenA.id,
-                tokenBId: selectedTokenB.id,
-                amountA: amountA,
-                amountB: amountB,
-                isAI: false
-              };
+              const decimals = getTokenDecimals(selectedTokenA);
+              const amountIn = ethers.utils.parseUnits(amountA, decimals);
 
-              console.log('Pushing manual trade to database:', tradeData);
-              toast({
-                title: "Trade Data",
-                description: `Pushing to database: TokenA(${selectedTokenA.symbol}): ${amountA}, TokenB(${selectedTokenB.symbol}): ${amountB}`,
-              });
+              const result = await web3Service.executeSwap(
+                tokenInAddress,
+                tokenOutAddress,
+                amountIn,
+                0.5 // Default slippage
+              );
 
-              try {
+              if (result.success) {
+                // Match the exact format of test trades
+                const tradeData = {
+                  tokenAId: selectedTokenA.id,
+                  tokenBId: selectedTokenB.id,
+                  amountA: amountA,
+                  amountB: amountB,
+                  isAI: false
+                };
+
                 const response = await apiRequest("POST", "/api/trades", tradeData);
                 console.log('Database response:', response);
 
@@ -221,31 +241,27 @@ export function TokenPairSelector({
                 // Reset amounts after successful trade
                 onAmountAChange("");
                 onAmountBChange("");
-              } catch (dbError) {
-                console.error('Database error:', dbError);
+              } else {
                 toast({
-                  title: "Database Error",
-                  description: "Failed to save trade to database. Check console for details.",
+                  title: "Trade Failed",
+                  description: result.error || "Unknown error occurred",
                   variant: "destructive"
                 });
               }
-            } else {
+            } catch (error) {
+              console.error("Trade failed:", error);
               toast({
                 title: "Trade Failed",
-                description: result.error || "Unknown error occurred",
+                description: error instanceof Error ? error.message : "Failed to execute trade",
                 variant: "destructive"
               });
+            } finally {
+              setIsLoading(false);
             }
-          } catch (error) {
-            console.error("Trade failed:", error);
-            toast({
-              title: "Trade Failed",
-              description: error instanceof Error ? error.message : "Failed to execute trade",
-              variant: "destructive"
-            });
-          }
-        }}>
-          Manual Swap
+          }}
+          disabled={isLoading}
+        >
+          {isLoading ? "Swapping..." : "Manual Swap"}
         </Button>
       )}
     </div>

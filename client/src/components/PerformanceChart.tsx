@@ -1,6 +1,6 @@
 import { Trade } from "@shared/schema";
 import { Line, LineChart, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
-import { Card } from "@/components/ui/card";
+import { Card } from "../components/ui/card";
 
 interface PerformanceChartProps {
   trades: Trade[];

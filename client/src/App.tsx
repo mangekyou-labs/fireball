@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { useToast } from "@/hooks/use-toast";
 import { useEffect } from "react";
 import Dashboard from "@/pages/dashboard";
+import Swap from "@/pages/swap";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -24,12 +25,15 @@ function Router() {
   return (
     <Switch>
       <Route path="/" component={Dashboard} />
+      <Route path="/swap" component={Swap} />
       <Route component={NotFound} />
     </Switch>
   );
 }
 
 function App() {
+  const { toast } = useToast();
+
   return (
     <QueryClientProvider client={queryClient}>
       <Router />

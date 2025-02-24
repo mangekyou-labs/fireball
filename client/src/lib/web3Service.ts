@@ -1,6 +1,8 @@
 import { ethers } from 'ethers';
 import { toast } from '@/hooks/use-toast';
 import { testWalletService } from './testWalletService';
+import { getPrice, runSwap, WETH, WBTC, USDC, USDT } from './uniswap/AlphaRouterService';
+import { Token } from '@uniswap/sdk-core';
 
 // Add window.ethereum type declaration
 declare global {
@@ -28,26 +30,20 @@ const ROUTER_ADDRESS = import.meta.env.VITE_ROUTER_ADDRESS;
 export class Web3Service {
   private provider: ethers.providers.Web3Provider | null = null;
   private signer: ethers.Signer | null = null;
-  private router: ethers.Contract | null = null;
   private isTestMode: boolean = false;
 
-  async connect(useTestWallet: boolean = false): Promise<boolean> {
+  constructor(isTestMode: boolean = false) {
+    this.isTestMode = isTestMode;
+  }
+
+  async connect(): Promise<boolean> {
     try {
-      if (useTestWallet) {
-        const testAddress = testWalletService.generateTestWallet();
-        this.isTestMode = true;
-        console.log("Connected to test wallet:", testAddress);
+      if (this.isTestMode) {
         return true;
       }
 
-      // Check if MetaMask is installed
       if (!window.ethereum) {
-        toast({
-          title: "MetaMask Required",
-          description: "Please install MetaMask to use this feature",
-          variant: "destructive",
-        });
-        return false;
+        throw new Error("MetaMask not found");
       }
 
       // Request account access
@@ -55,22 +51,28 @@ export class Web3Service {
 
       this.provider = new ethers.providers.Web3Provider(window.ethereum);
       this.signer = this.provider.getSigner();
-      this.router = new ethers.Contract(ROUTER_ADDRESS, ROUTER_ABI, this.signer);
-      this.isTestMode = false;
-
-      // Get connected account to verify
-      const address = await this.signer.getAddress();
-      console.log("Connected to address:", address);
 
       return true;
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : "Failed to connect wallet";
-      toast({
-        title: "Connection Error",
-        description: message,
-        variant: "destructive",
-      });
+    } catch (error) {
+      console.error('Failed to connect wallet:', error);
       return false;
+    }
+  }
+
+  async getAddress(): Promise<string | null> {
+    try {
+      if (this.isTestMode) {
+        return "0xTestAddress";
+      }
+
+      if (!this.signer) {
+        throw new Error("Wallet not connected");
+      }
+
+      return await this.signer.getAddress();
+    } catch (error) {
+      console.error('Failed to get address:', error);
+      return null;
     }
   }
 
@@ -85,31 +87,70 @@ export class Web3Service {
         return testWalletService.executeTestSwap(tokenIn, tokenOut, amountIn);
       }
 
-      if (!this.signer || !this.router) {
+      if (!this.signer) {
         throw new Error("Wallet not connected");
       }
 
-      // Get token contracts
-      const tokenInContract = new ethers.Contract(tokenIn, ERC20_ABI, this.signer);
+      // Get the appropriate token objects
+      let inputToken: Token;
+      let outputToken: Token;
 
-      // Approve router to spend tokens
-      const approvalTx = await tokenInContract.approve(ROUTER_ADDRESS, amountIn);
-      await approvalTx.wait();
+      switch (tokenIn.toLowerCase()) {
+        case import.meta.env.VITE_WETH_ADDRESS.toLowerCase():
+          inputToken = WETH;
+          break;
+        case import.meta.env.VITE_WBTC_ADDRESS.toLowerCase():
+          inputToken = WBTC;
+          break;
+        case import.meta.env.VITE_USDC_ADDRESS.toLowerCase():
+          inputToken = USDC;
+          break;
+        case import.meta.env.VITE_USDT_ADDRESS.toLowerCase():
+          inputToken = USDT;
+          break;
+        default:
+          throw new Error("Unsupported input token");
+      }
 
-      // Get expected output amount
-      const amounts = await this.router.getAmountsOut(amountIn, [tokenIn, tokenOut]);
-      const amountOutMin = amounts[1].mul(ethers.BigNumber.from(1000 - slippage * 10)).div(1000);
+      switch (tokenOut.toLowerCase()) {
+        case import.meta.env.VITE_WETH_ADDRESS.toLowerCase():
+          outputToken = WETH;
+          break;
+        case import.meta.env.VITE_WBTC_ADDRESS.toLowerCase():
+          outputToken = WBTC;
+          break;
+        case import.meta.env.VITE_USDC_ADDRESS.toLowerCase():
+          outputToken = USDC;
+          break;
+        case import.meta.env.VITE_USDT_ADDRESS.toLowerCase():
+          outputToken = USDT;
+          break;
+        default:
+          throw new Error("Unsupported output token");
+      }
 
-      // Execute swap
+      const walletAddress = await this.getAddress();
+      if (!walletAddress) {
+        throw new Error("Could not get wallet address");
+      }
+
+      // Get the swap transaction
       const deadline = Math.floor(Date.now() / 1000) + 300; // 5 minutes
-      const tx = await this.router.swapExactTokensForTokens(
-        amountIn,
-        amountOutMin,
-        [tokenIn, tokenOut],
-        await this.signer.getAddress(),
-        deadline
+      const [transaction] = await getPrice(
+        ethers.utils.formatUnits(amountIn, inputToken.decimals),
+        inputToken,
+        outputToken,
+        slippage,
+        deadline,
+        walletAddress
       );
 
+      if (!transaction) {
+        throw new Error("Failed to get swap transaction");
+      }
+
+      // Execute the swap
+      const tx = await runSwap(transaction, this.signer, inputToken);
       const receipt = await tx.wait();
 
       return {
@@ -125,37 +166,32 @@ export class Web3Service {
     }
   }
 
-  async getTokenBalance(tokenAddress: string): Promise<string> {
+  async getBalance(tokenAddress: string): Promise<ethers.BigNumber> {
     try {
       if (this.isTestMode) {
-        const balance = await testWalletService.getTestBalance(tokenAddress);
-        return balance.toString();
+        return testWalletService.getTestBalance(tokenAddress);
       }
 
-      if (!this.signer || !this.provider) {
+      if (!this.signer) {
         throw new Error("Wallet not connected");
       }
 
-      const token = new ethers.Contract(tokenAddress, ERC20_ABI, this.provider);
-      const address = await this.signer.getAddress();
-      const balance = await token.balanceOf(address);
+      const address = await this.getAddress();
+      if (!address) {
+        throw new Error("Could not get wallet address");
+      }
 
-      return balance.toString();
-    } catch (error: unknown) {
-      console.error("Failed to get token balance:", error);
-      return "0";
+      const tokenContract = new ethers.Contract(
+        tokenAddress,
+        ["function balanceOf(address) view returns (uint256)"],
+        this.provider!
+      );
+
+      return await tokenContract.balanceOf(address);
+    } catch (error) {
+      console.error('Failed to get balance:', error);
+      return ethers.BigNumber.from(0);
     }
-  }
-
-  getCurrentWalletAddress(): string | null {
-    if (this.isTestMode) {
-      return testWalletService.getWalletAddress();
-    }
-    return null;
-  }
-
-  isConnected(): boolean {
-    return this.isTestMode || (this.provider !== null && this.signer !== null);
   }
 }
 

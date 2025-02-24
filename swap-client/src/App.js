@@ -92,8 +92,8 @@ function App() {
         wbtcContract.balanceOf(address)
       ]);
 
-      setUsdcAmount(Number(ethers.utils.formatUnits(usdcBalance, 6)));
-      setWbtcAmount(Number(ethers.utils.formatEther(wbtcBalance)));
+      setUsdcAmount(Number(ethers.utils.formatEther(usdcBalance, USDC.decimals)));
+      setWbtcAmount(Number(ethers.utils.formatEther(wbtcBalance, WBTC.decimals)));
     } catch (error) {
       console.error("Error fetching balances:", error);
     }
