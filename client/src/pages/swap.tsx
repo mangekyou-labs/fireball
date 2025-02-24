@@ -6,6 +6,9 @@ import { getUsdcContract, getWbtcContract, getPrice, runSwap, USDC, WBTC } from 
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { LimitOrderForm } from '@/components/LimitOrderForm';
+import { PoolManagement } from '@/components/PoolManagement';
 
 // Chain configuration
 const targetNetwork = {
@@ -243,118 +246,136 @@ export default function Swap() {
   };
 
   return (
-    <div className="min-h-screen bg-background p-6">
-      <div className="max-w-md mx-auto">
-        <Card className="p-6">
-          <div className="flex justify-between items-center mb-6">
-            <h2 className="text-2xl font-bold">Swap</h2>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => setShowSettings(!showSettings)}
-            >
-              <Settings className="h-5 w-5" />
-            </Button>
-          </div>
+    <div className="container mx-auto px-4 py-8">
+      <Card className="max-w-xl mx-auto">
+        <Tabs defaultValue="market" className="w-full">
+          <TabsList className="grid w-full grid-cols-3">
+            <TabsTrigger value="market">Market Order</TabsTrigger>
+            <TabsTrigger value="limit">Limit Order</TabsTrigger>
+            <TabsTrigger value="pool">Pool</TabsTrigger>
+          </TabsList>
+          
+          <TabsContent value="market">
+            <div className="p-6">
+              <div className="flex justify-between items-center mb-6">
+                <h2 className="text-lg font-semibold">Swap</h2>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setShowSettings(!showSettings)}
+                >
+                  <Settings className="h-6 w-6" />
+                </Button>
+              </div>
 
-          {/* Settings Modal */}
-          {showSettings && (
-            <div className="mb-6 p-4 border rounded-lg">
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium mb-1">
-                    Slippage Tolerance (%)
-                  </label>
+              {/* Settings Modal */}
+              {showSettings && (
+                <div className="mb-6 p-4 border rounded-lg">
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium mb-1">
+                        Slippage Tolerance (%)
+                      </label>
+                      <Input
+                        type="number"
+                        value={slippageAmount}
+                        onChange={(e) => setSlippageAmount(Number(e.target.value))}
+                        min="0.1"
+                        max="50"
+                        step="0.1"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1">
+                        Transaction Deadline (minutes)
+                      </label>
+                      <Input
+                        type="number"
+                        value={deadlineMinutes}
+                        onChange={(e) => setDeadlineMinutes(Number(e.target.value))}
+                        min="1"
+                        max="60"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* WBTC Input */}
+              <div className="space-y-2 mb-4">
+                <div className="flex justify-between">
+                  <span>From</span>
+                  <span>Balance: {Number(wbtcBalance).toFixed(6)} WBTC</span>
+                </div>
+                <div className="flex gap-2">
                   <Input
                     type="number"
-                    value={slippageAmount}
-                    onChange={(e) => setSlippageAmount(Number(e.target.value))}
-                    min="0.1"
-                    max="50"
-                    step="0.1"
+                    placeholder="0.0"
+                    value={inputAmount}
+                    onChange={(e) => getSwapPrice(e.target.value)}
+                    disabled={loading || !signerAddress}
                   />
+                  <div className="w-24 flex items-center justify-center font-medium bg-secondary rounded">
+                    WBTC
+                  </div>
                 </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">
-                    Transaction Deadline (minutes)
-                  </label>
+              </div>
+
+              {/* USDC Output */}
+              <div className="space-y-2 mb-6">
+                <div className="flex justify-between">
+                  <span>To</span>
+                  <span>Balance: {Number(usdcBalance).toFixed(6)} USDC</span>
+                </div>
+                <div className="flex gap-2">
                   <Input
                     type="number"
-                    value={deadlineMinutes}
-                    onChange={(e) => setDeadlineMinutes(Number(e.target.value))}
-                    min="1"
-                    max="60"
+                    placeholder="0.0"
+                    value={outputAmount}
+                    disabled={true}
                   />
+                  <div className="w-24 flex items-center justify-center font-medium bg-secondary rounded">
+                    USDC
+                  </div>
                 </div>
               </div>
-            </div>
-          )}
 
-          {/* WBTC Input */}
-          <div className="space-y-2 mb-4">
-            <div className="flex justify-between">
-              <span>From</span>
-              <span>Balance: {Number(wbtcBalance).toFixed(6)} WBTC</span>
-            </div>
-            <div className="flex gap-2">
-              <Input
-                type="number"
-                placeholder="0.0"
-                value={inputAmount}
-                onChange={(e) => getSwapPrice(e.target.value)}
-                disabled={loading || !signerAddress}
-              />
-              <div className="w-24 flex items-center justify-center font-medium bg-secondary rounded">
-                WBTC
-              </div>
-            </div>
-          </div>
+              {/* Connect/Swap Button */}
+              {!signerAddress ? (
+                <Button 
+                  className="w-full" 
+                  onClick={connectWallet}
+                >
+                  Connect Wallet
+                </Button>
+              ) : (
+                <Button
+                  className="w-full"
+                  onClick={executeSwap}
+                  disabled={loading || !transaction}
+                >
+                  {loading ? "Loading..." : "Swap"}
+                </Button>
+              )}
 
-          {/* USDC Output */}
-          <div className="space-y-2 mb-6">
-            <div className="flex justify-between">
-              <span>To</span>
-              <span>Balance: {Number(usdcBalance).toFixed(6)} USDC</span>
+              {/* Exchange Rate */}
+              {ratio && (
+                <div className="mt-4 text-sm text-muted-foreground text-center">
+                  1 WBTC = {ratio} USDC
+                </div>
+              )}
             </div>
-            <div className="flex gap-2">
-              <Input
-                type="number"
-                placeholder="0.0"
-                value={outputAmount}
-                disabled={true}
-              />
-              <div className="w-24 flex items-center justify-center font-medium bg-secondary rounded">
-                USDC
-              </div>
-            </div>
-          </div>
+          </TabsContent>
 
-          {/* Connect/Swap Button */}
-          {!signerAddress ? (
-            <Button 
-              className="w-full" 
-              onClick={connectWallet}
-            >
-              Connect Wallet
-            </Button>
-          ) : (
-            <Button
-              className="w-full"
-              onClick={executeSwap}
-              disabled={loading || !transaction}
-            >
-              {loading ? "Loading..." : "Swap"}
-            </Button>
-          )}
+          <TabsContent value="limit">
+            <LimitOrderForm provider={provider} signer={signer} />
+          </TabsContent>
 
-          {/* Exchange Rate */}
-          {ratio && (
-            <div className="mt-4 text-sm text-muted-foreground text-center">
-              1 WBTC = {ratio} USDC
-            </div>
-          )}
-        </Card>
-      </div>
+          <TabsContent value="pool">
+            <PoolManagement provider={provider} signer={signer} address={signerAddress} />
+          </TabsContent>
+        </Tabs>
+      </Card>
     </div>
   );
 }
