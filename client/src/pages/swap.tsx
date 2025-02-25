@@ -8,7 +8,9 @@ import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { LimitOrderForm } from '@/components/LimitOrderForm';
+import { LimitOrderList } from '@/components/LimitOrderList';
 import { PoolManagement } from '@/components/PoolManagement';
+import { useWallet } from '@/contexts/WalletContext';
 
 // Chain configuration
 const targetNetwork = {
@@ -24,10 +26,7 @@ const targetNetwork = {
 
 export default function Swap() {
   const { toast } = useToast();
-  const [provider, setProvider] = useState<ethers.providers.Web3Provider>();
-  const [signer, setSigner] = useState<ethers.Signer>();
-  const [signerAddress, setSignerAddress] = useState<string>();
-
+  const { provider, signer, address, isConnected } = useWallet();
   const [slippageAmount, setSlippageAmount] = useState(2);
   const [deadlineMinutes, setDeadlineMinutes] = useState(10);
   const [showSettings, setShowSettings] = useState(false);
@@ -43,41 +42,6 @@ export default function Swap() {
 
   const [usdcBalance, setUsdcBalance] = useState('0');
   const [wbtcBalance, setWbtcBalance] = useState('0');
-
-  // Switch to the correct network
-  const switchNetwork = async () => {
-    if (!window.ethereum) return false;
-
-    try {
-      // Try to switch to the network
-      await window.ethereum.request({
-        method: 'wallet_switchEthereumChain',
-        params: [{ chainId: targetNetwork.chainId }],
-      });
-      return true;
-    } catch (switchError: any) {
-      // This error code indicates that the chain has not been added to MetaMask.
-      if (switchError.code === 4902) {
-        try {
-          await window.ethereum.request({
-            method: 'wallet_addEthereumChain',
-            params: [targetNetwork],
-          });
-          return true;
-        } catch (addError) {
-          console.error('Error adding chain:', addError);
-          toast({
-            title: "Network Error",
-            description: "Failed to add network to MetaMask",
-            variant: "destructive"
-          });
-          return false;
-        }
-      }
-      console.error('Error switching chain:', switchError);
-      return false;
-    }
-  };
 
   // Initialize contracts once
   useEffect(() => {
@@ -104,89 +68,15 @@ export default function Swap() {
     }
   };
 
-  // Handle account changes
-  const accountChangeHandler = async (account: string) => {
-    if (!account) return;
-
-    try {
-      // Ensure we're on the correct network first
-      const switched = await switchNetwork();
-      if (!switched) {
-        toast({
-          title: "Network Error",
-          description: "Please switch to Sonic Blaze network!",
-          variant: "destructive"
-        });
-        return;
-      }
-
-      // Update signer and address
-      const provider = new ethers.providers.Web3Provider(window.ethereum);
-      const signer = provider.getSigner();
-      
-      setProvider(provider);
-      setSigner(signer);
-      setSignerAddress(account);
-
-      // Get token balances
-      await getBalances(account);
-    } catch (error) {
-      console.error("Error in account change:", error);
+  // Update balances when address changes
+  useEffect(() => {
+    if (address) {
+      getBalances(address);
     }
-  };
-
-  // Connect wallet button handler
-  const connectWallet = async () => {
-    if (!window.ethereum) {
-      toast({
-        title: "Wallet Error",
-        description: "Please install MetaMask!",
-        variant: "destructive"
-      });
-      return;
-    }
-
-    try {
-      // First, ensure we're on the correct network
-      const switched = await switchNetwork();
-      if (!switched) {
-        toast({
-          title: "Network Error",
-          description: "Please switch to Sonic Blaze network!",
-          variant: "destructive"
-        });
-        return;
-      }
-
-      // Request account access
-      const accounts = await window.ethereum.request({ 
-        method: "eth_requestAccounts" 
-      });
-      
-      // Handle the first account
-      if (accounts.length > 0) {
-        await accountChangeHandler(accounts[0]);
-
-        // Setup account change listener
-        window.ethereum.on('accountsChanged', (accounts: string[]) => {
-          if (accounts.length > 0) {
-            accountChangeHandler(accounts[0]);
-          } else {
-            // Handle disconnection
-            setSigner(undefined);
-            setSignerAddress(undefined);
-            setUsdcBalance('0');
-            setWbtcBalance('0');
-          }
-        });
-      }
-    } catch (error) {
-      console.error("Error connecting to MetaMask:", error);
-    }
-  };
+  }, [address, usdcContract, wbtcContract]);
 
   const getSwapPrice = async (value: string) => {
-    if (!signerAddress) return;
+    if (!address) return;
 
     setLoading(true);
     setInputAmount(value);
@@ -198,7 +88,7 @@ export default function Swap() {
         USDC,
         slippageAmount,
         Math.floor(Date.now() / 1000) + (60 * deadlineMinutes),
-        signerAddress
+        address
       );
 
       setTransaction(transaction);
@@ -230,8 +120,8 @@ export default function Swap() {
       });
 
       // Refresh balances
-      if (signerAddress) {
-        await getBalances(signerAddress);
+      if (address) {
+        await getBalances(address);
       }
     } catch (error) {
       console.error("Swap failed:", error);
@@ -313,7 +203,7 @@ export default function Swap() {
                     placeholder="0.0"
                     value={inputAmount}
                     onChange={(e) => getSwapPrice(e.target.value)}
-                    disabled={loading || !signerAddress}
+                    disabled={loading || !isConnected}
                   />
                   <div className="w-24 flex items-center justify-center font-medium bg-secondary rounded">
                     WBTC
@@ -340,23 +230,14 @@ export default function Swap() {
                 </div>
               </div>
 
-              {/* Connect/Swap Button */}
-              {!signerAddress ? (
-                <Button 
-                  className="w-full" 
-                  onClick={connectWallet}
-                >
-                  Connect Wallet
-                </Button>
-              ) : (
-                <Button
-                  className="w-full"
-                  onClick={executeSwap}
-                  disabled={loading || !transaction}
-                >
-                  {loading ? "Loading..." : "Swap"}
-                </Button>
-              )}
+              {/* Swap Button */}
+              <Button
+                className="w-full"
+                onClick={executeSwap}
+                disabled={loading || !isConnected || !transaction}
+              >
+                {loading ? "Loading..." : "Swap"}
+              </Button>
 
               {/* Exchange Rate */}
               {ratio && (
@@ -368,11 +249,18 @@ export default function Swap() {
           </TabsContent>
 
           <TabsContent value="limit">
-            <LimitOrderForm provider={provider} signer={signer} />
+            <div className="space-y-6">
+              <LimitOrderForm />
+              <LimitOrderList />
+            </div>
           </TabsContent>
 
           <TabsContent value="pool">
-            <PoolManagement provider={provider} signer={signer} address={signerAddress} />
+            <PoolManagement 
+              provider={provider ?? undefined} 
+              signer={signer ?? undefined} 
+              address={address ?? undefined} 
+            />
           </TabsContent>
         </Tabs>
       </Card>

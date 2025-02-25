@@ -3,27 +3,20 @@ import OpenAI from "openai";
 let openai: OpenAI | null = null;
 
 function initializeOpenAI() {
-  console.log('Environment variables:', {
-    VITE_DEEPSEEK_API_KEY: import.meta.env.VITE_DEEPSEEK_API_KEY ? 'Present' : 'Missing',
-    NODE_ENV: import.meta.env.MODE,
-    DEV: import.meta.env.DEV,
-    PROD: import.meta.env.PROD,
-  });
-  
-  const apiKey = import.meta.env.VITE_DEEPSEEK_API_KEY;
+  const apiKey = import.meta.env.VITE_SONAR_API_KEY;
   if (!apiKey) {
-    console.error("DeepSeek API key is missing. Check your .env file configuration.");
+    console.error("Sonar API key is missing. Check your .env file configuration.");
     return null;
   }
 
   try {
     return new OpenAI({
       apiKey,
-      baseURL: 'https://api.deepseek.com/v1',
+      baseURL: 'https://api.perplexity.ai',
       dangerouslyAllowBrowser: true
     });
   } catch (error) {
-    console.error("Failed to initialize DeepSeek client:", error);
+    console.error("Failed to initialize Sonar Pro client:", error);
     return null;
   }
 }
@@ -73,7 +66,7 @@ Provide analysis in JSON format:
 
   try {
     const response = await openai.chat.completions.create({
-      model: "deepseek-chat",
+      model: "sonar",
       messages: [
         {
           role: "system",
@@ -90,7 +83,7 @@ Provide analysis in JSON format:
 
     const content = response.choices[0].message.content;
     if (!content) {
-      throw new Error("Empty response from DeepSeek API");
+      throw new Error("Empty response from Sonar Pro API");
     }
 
     const analysis = JSON.parse(content) as MarketAnalysis;
@@ -134,7 +127,7 @@ Focus on:
 
   try {
     const response = await openai.chat.completions.create({
-      model: "deepseek-chat",
+      model: "sonar",
       messages: [
         {
           role: "system",
@@ -150,7 +143,7 @@ Focus on:
 
     const content = response.choices[0].message.content;
     if (!content) {
-      throw new Error("Empty response from DeepSeek API");
+      throw new Error("Empty response from Sonar Pro API");
     }
 
     return content;

@@ -1,45 +1,27 @@
-import { Switch, Route } from "wouter";
-import { queryClient } from "./lib/queryClient";
-import { QueryClientProvider } from "@tanstack/react-query";
-import { Toaster } from "@/components/ui/toaster";
-import { useToast } from "@/hooks/use-toast";
-import { useEffect } from "react";
-import Dashboard from "@/pages/dashboard";
-import Swap from "@/pages/swap";
-import NotFound from "@/pages/not-found";
+import { WalletProvider } from '@/contexts/WalletContext';
+import { Header } from '@/components/Header';
+import { Toaster } from '@/components/ui/toaster';
+import { Route, Switch } from 'wouter';
+import Dashboard from '@/pages/dashboard';
+import Swap from '@/pages/swap';
+import { QueryClientProvider } from '@tanstack/react-query';
+import { queryClient } from '@/utils/query-client';
 
-function Router() {
-  const { toast } = useToast();
-
-  useEffect(() => {
-    // Check if DeepSeek API key is configured
-    if (!import.meta.env.VITE_DEEPSEEK_API_KEY) {
-      toast({
-        title: "Configuration Error",
-        description: "DeepSeek API key is not properly configured. AI features will be disabled.",
-        variant: "destructive",
-      });
-    }
-  }, [toast]);
-
-  return (
-    <Switch>
-      <Route path="/" component={Dashboard} />
-      <Route path="/swap" component={Swap} />
-      <Route component={NotFound} />
-    </Switch>
-  );
-}
-
-function App() {
-  const { toast } = useToast();
-
+export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <Router />
-      <Toaster />
+      <WalletProvider>
+        <div className="min-h-screen bg-background">
+          <Header />
+          <main>
+            <Switch>
+              <Route path="/" component={Dashboard} />
+              <Route path="/swap" component={Swap} />
+            </Switch>
+          </main>
+          <Toaster />
+        </div>
+      </WalletProvider>
     </QueryClientProvider>
   );
 }
-
-export default App;

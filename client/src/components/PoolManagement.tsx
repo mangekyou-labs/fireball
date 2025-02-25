@@ -123,12 +123,16 @@ export function PoolManagement({ provider, signer, address }: PoolManagementProp
 
     setLoading(true);
     try {
+      // Convert user-friendly amounts to token units
+      const amount0InWei = ethers.utils.parseUnits(amount0, tokenA.decimals).toString();
+      const amount1InWei = ethers.utils.parseUnits(amount1, tokenB.decimals).toString();
+
       const result = await poolService.createPosition(
         tokenA,
         tokenB,
         fee,
-        amount0,
-        amount1,
+        amount0InWei,
+        amount1InWei,
         parseInt(tickLower),
         parseInt(tickUpper),
         parseFloat(slippage)
@@ -166,10 +170,24 @@ export function PoolManagement({ provider, signer, address }: PoolManagementProp
 
     setLoading(true);
     try {
+      // Find the selected position to get token information
+      const position = positions.find(p => p.tokenId === selectedPositionId);
+      if (!position) {
+        throw new Error('Position not found');
+      }
+
+      // Get token decimals
+      const token0Decimals = getTokenDecimals(position.token0);
+      const token1Decimals = getTokenDecimals(position.token1);
+
+      // Convert user-friendly amounts to token units
+      const amount0InWei = ethers.utils.parseUnits(modifyAmount0, token0Decimals).toString();
+      const amount1InWei = ethers.utils.parseUnits(modifyAmount1, token1Decimals).toString();
+
       const result = await poolService.increaseLiquidity(
         selectedPositionId,
-        modifyAmount0,
-        modifyAmount1,
+        amount0InWei,
+        amount1InWei,
         parseFloat(slippage)
       );
 
@@ -256,6 +274,23 @@ export function PoolManagement({ provider, signer, address }: PoolManagementProp
     }
   };
 
+  // Helper function to get token decimals
+  const getTokenDecimals = (tokenAddress: string): number => {
+    // Check common token addresses
+    if (tokenAddress.toLowerCase() === WETH.address.toLowerCase()) {
+      return 18; // ETH has 18 decimals
+    } else if (tokenAddress.toLowerCase() === WBTC.address.toLowerCase()) {
+      return 18; // WBTC has 18 decimals in this implementation
+    } else if (
+      tokenAddress.toLowerCase() === USDC.address.toLowerCase() ||
+      tokenAddress.toLowerCase() === USDT.address.toLowerCase()
+    ) {
+      return 18; // USDC and USDT have 18 decimals in this implementation
+    }
+    // Default to 18 decimals for other tokens
+    return 18;
+  };
+
   return (
     <div className="space-y-6">
       {/* Create New Position */}
@@ -272,6 +307,10 @@ export function PoolManagement({ provider, signer, address }: PoolManagementProp
             onAmountAChange={setAmount0}
             onAmountBChange={setAmount1}
           />
+          
+          <div className="text-sm text-muted-foreground mb-2">
+            Enter amounts in standard units (e.g., 1 = 1 ETH, 1 = 1 USDC)
+          </div>
 
           <div className="grid grid-cols-2 gap-4">
             <div>
@@ -373,19 +412,21 @@ export function PoolManagement({ provider, signer, address }: PoolManagementProp
                           <TabsContent value="increase">
                             <div className="space-y-4">
                               <div>
-                                <Label>Amount Token0</Label>
+                                <Label>Amount Token0 (in standard units, e.g., 1 = 1 ETH)</Label>
                                 <Input
                                   type="number"
                                   value={modifyAmount0}
                                   onChange={(e) => setModifyAmount0(e.target.value)}
+                                  placeholder="e.g., 1.5"
                                 />
                               </div>
                               <div>
-                                <Label>Amount Token1</Label>
+                                <Label>Amount Token1 (in standard units, e.g., 1 = 1 USDC)</Label>
                                 <Input
                                   type="number"
                                   value={modifyAmount1}
                                   onChange={(e) => setModifyAmount1(e.target.value)}
+                                  placeholder="e.g., 1000"
                                 />
                               </div>
                               <Button

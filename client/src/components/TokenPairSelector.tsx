@@ -30,8 +30,7 @@ interface TokenPairSelectorProps {
   amountB: string;
   onAmountAChange: (amount: string) => void;
   onAmountBChange: (amount: string) => void;
-  isManualMode?: boolean;
-  onModeChange?: (isManual: boolean) => void;
+  disableAmountB?: boolean;
 }
 
 // Hardcoded token list
@@ -75,15 +74,21 @@ export function TokenPairSelector({
   amountB,
   onAmountAChange,
   onAmountBChange,
+  disableAmountB = false,
 }: TokenPairSelectorProps) {
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
 
-  // Get token list from API
-  const { data: tokens } = useQuery<Token[]>({
+  // Get token list from API with error handling
+  const { data: tokens, error } = useQuery<Token[]>({
     queryKey: ["/api/tokens"],
     refetchInterval: 5000, // Refetch every 5 seconds
+    retry: 1,
+    enabled: false, // Disable the query since we're using hardcoded list
   });
+
+  // Use hardcoded token list
+  const availableTokens = TOKEN_LIST;
 
   // Get token addresses for the selected tokens
   const getTokenAddress = (token: Token | null) => {
@@ -176,6 +181,7 @@ export function TokenPairSelector({
             placeholder="0.0"
             value={amountB}
             onChange={(e) => onAmountBChange(e.target.value)}
+            disabled={disableAmountB}
           />
         </div>
       </div>

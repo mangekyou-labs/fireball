@@ -15,7 +15,6 @@ import {
   CollectOptions,
   RemoveLiquidityOptions,
   IncreaseOptions,
-  DecreaseOptions,
   TickMath,
 } from '@uniswap/v3-sdk';
 import { ethers } from 'ethers';
@@ -98,20 +97,31 @@ export class PoolService {
       const walletAddress = await this.signer.getAddress();
       const pool = await this.getPool(tokenA, tokenB, fee);
 
-      // Create position instance
-      const position = new Position({
+      // Ensure ticks are spaced correctly
+      const tickSpacing = pool.tickSpacing;
+      const adjustedTickLower = nearestUsableTick(tickLower, tickSpacing);
+      const adjustedTickUpper = nearestUsableTick(tickUpper, tickSpacing);
+
+      if (adjustedTickLower >= adjustedTickUpper) {
+        throw new Error('Invalid tick range - lower tick must be less than upper tick');
+      }
+
+      // Create position using fromAmounts
+      const position = Position.fromAmounts({
         pool,
-        tickLower,
-        tickUpper,
-        liquidity: JSBI.BigInt(0), // Will be calculated from amounts
+        tickLower: adjustedTickLower,
+        tickUpper: adjustedTickUpper,
+        amount0,
+        amount1,
+        useFullPrecision: true,
       });
 
-      // Calculate liquidity from amounts
-      const { amount0: amount0CurrencyAmount, amount1: amount1CurrencyAmount } = position.mintAmounts;
+      // Get exact amounts needed for position
+      const { amount0: amount0Required, amount1: amount1Required } = position.mintAmounts;
       
       // Approve tokens
-      await this.approveToken(tokenA, amount0CurrencyAmount.toString());
-      await this.approveToken(tokenB, amount1CurrencyAmount.toString());
+      await this.approveToken(tokenA, amount0Required.toString());
+      await this.approveToken(tokenB, amount1Required.toString());
 
       // Create mint options
       const mintOptions: MintOptions = {
@@ -158,6 +168,7 @@ export class PoolService {
         positionId,
       };
     } catch (error) {
+      console.error('Error creating position:', error);
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Unknown error occurred',
@@ -176,8 +187,25 @@ export class PoolService {
         throw new Error('Wallet not connected');
       }
 
-      const walletAddress = await this.signer.getAddress();
       const position = await this.getPosition(positionId);
+      const walletAddress = await this.signer.getAddress();
+
+      // Calculate the amounts needed for the position
+      const { amount0: amount0CurrencyAmount, amount1: amount1CurrencyAmount } = position.mintAmounts;
+
+      // Approve tokens
+      await this.approveToken(position.pool.token0, amount0);
+      await this.approveToken(position.pool.token1, amount1);
+
+      // Create a new position with the increased amounts
+      const newPosition = Position.fromAmounts({
+        pool: position.pool,
+        tickLower: position.tickLower,
+        tickUpper: position.tickUpper,
+        amount0,
+        amount1,
+        useFullPrecision: true,
+      });
 
       // Create increase options
       const increaseOptions: IncreaseOptions = {
@@ -188,7 +216,7 @@ export class PoolService {
 
       // Get increase parameters
       const { calldata, value } = NonfungiblePositionManager.addCallParameters(
-        position,
+        newPosition,
         increaseOptions
       );
 

@@ -67,13 +67,15 @@ export class RangeOrderService {
         [
           'function slot0() external view returns (uint160 sqrtPriceX96, int24 tick, uint16 observationIndex, uint16 observationCardinality, uint16 observationCardinalityNext, uint8 feeProtocol, bool unlocked)',
           'function liquidity() external view returns (uint128)',
+          'function tickSpacing() external view returns (int24)',
         ],
         this.provider
       );
 
-      const [slot0, liquidity] = await Promise.all([
+      const [slot0, liquidity, tickSpacing] = await Promise.all([
         poolContract.slot0(),
         poolContract.liquidity(),
+        poolContract.tickSpacing(),
       ]);
 
       // Create pool instance
@@ -96,27 +98,44 @@ export class RangeOrderService {
 
       const targetTick = nearestUsableTick(
         priceToClosestTick(targetPriceObj),
-        pool.tickSpacing
+        tickSpacing
       );
 
       // For a buy limit order, we provide tokenIn below the current price
-      const position = Position.fromAmount0({
+      const position = Position.fromAmounts({
         pool,
-        tickLower: targetTick - pool.tickSpacing,
+        tickLower: targetTick - tickSpacing,
         tickUpper: targetTick,
-        amount0: ethers.utils.parseUnits(amountIn, tokenIn.decimals).toString(),
+        amount0: amountIn,
+        amount1: '0', // For buy limit orders, we only provide token0
         useFullPrecision: true,
       });
 
-      // Approve token spending
+      // Get exact amounts needed
+      const { amount0: amount0Required, amount1: amount1Required } = position.mintAmounts;
+
+      // Approve token spending with exact amount
       const tokenContract = new ethers.Contract(
         tokenIn.address,
-        ['function approve(address spender, uint256 amount) external returns (bool)'],
+        [
+          'function approve(address spender, uint256 amount) external returns (bool)',
+          'function allowance(address owner, address spender) external view returns (uint256)'
+        ],
         this.signer
       );
 
-      const { amount0 } = position.mintAmounts;
-      await tokenContract.approve(NONFUNGIBLE_POSITION_MANAGER_ADDRESS, amount0.toString());
+      // First, check current allowance
+      const allowance = await tokenContract.allowance(walletAddress, NONFUNGIBLE_POSITION_MANAGER_ADDRESS);
+      if (allowance.lt(amount0Required.toString())) {
+        console.log('Current allowance:', allowance.toString());
+        console.log('Required amount:', amount0Required.toString());
+        const approveTx = await tokenContract.approve(NONFUNGIBLE_POSITION_MANAGER_ADDRESS, amount0Required.toString());
+        console.log('Waiting for approval transaction...');
+        const approvalReceipt = await approveTx.wait();
+        console.log('Approval transaction confirmed:', approvalReceipt.transactionHash);
+      } else {
+        console.log('Sufficient allowance already exists');
+      }
 
       // Create mint options
       const mintOptions: MintOptions = {
@@ -156,13 +175,14 @@ export class RangeOrderService {
         throw new Error('Could not find position ID in transaction logs');
       }
 
-      const tokenId = ethers.BigNumber.from(transferLog.topics[3]).toNumber();
+      const orderId = ethers.BigNumber.from(transferLog.topics[3]).toNumber();
 
       return {
         success: true,
-        orderId: tokenId,
+        orderId,
       };
     } catch (error) {
+      console.error('Error creating limit order:', error);
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Unknown error occurred',
