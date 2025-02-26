@@ -1,8 +1,27 @@
 import 'dotenv/config'
+import fs from 'fs';
+import path from 'path';
 
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
+
+// Load API key from client .env file if not already set
+if (!process.env.SONAR_API_KEY) {
+  try {
+    const clientEnvPath = path.resolve(process.cwd(), 'client', '.env');
+    if (fs.existsSync(clientEnvPath)) {
+      const envContent = fs.readFileSync(clientEnvPath, 'utf8');
+      const apiKeyMatch = envContent.match(/VITE_SONAR_API_KEY=(.+)/);
+      if (apiKeyMatch && apiKeyMatch[1]) {
+        process.env.SONAR_API_KEY = apiKeyMatch[1];
+        log('Loaded SONAR_API_KEY from client .env file');
+      }
+    }
+  } catch (error) {
+    console.error('Error loading API key from client .env file:', error);
+  }
+}
 
 const app = express();
 app.use(express.json());

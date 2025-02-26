@@ -4,7 +4,7 @@ import { Strategy, Trade, Token } from "@shared/schema";
 import { Switch } from "@/components/ui/switch";
 import { Brain, AlertTriangle, Wallet } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { analyzeMarketConditions, generateTradingStrategy } from "@/lib/aiService";
+import { analyzeMarketConditions, generateTradingStrategy, generateDexTradingDecision } from "@/lib/aiService";
 import { useToast } from "@/hooks/use-toast";
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
@@ -15,9 +15,11 @@ import { web3Service } from "@/lib/web3Service"; // Import web3Service
 import { ethers } from "ethers";
 import { TokenPairSelector } from "./TokenPairSelector";
 
-const USDC_ADDRESS = "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"; // Example - replace with actual address
-const BTC_ADDRESS = "0x2260fac5e5542a773aa44fbcfedf7c193bc2c599"; // Example - replace with actual address
-
+// Use environment variables for token addresses
+const USDC_ADDRESS = import.meta.env.VITE_USDC_ADDRESS;
+const WBTC_ADDRESS = import.meta.env.VITE_WBTC_ADDRESS;
+const WETH_ADDRESS = import.meta.env.VITE_WETH_ADDRESS;
+const USDT_ADDRESS = import.meta.env.VITE_USDT_ADDRESS;
 
 export function AIStrategyPanel() {
   const { toast } = useToast();
@@ -54,11 +56,11 @@ export function AIStrategyPanel() {
 
   const connectWallet = async (useTestWallet: boolean = false) => {
     try {
-      const connected = await web3Service.connect(useTestWallet);
+      const connected = await web3Service.connect();
       if (connected) {
         setIsWalletConnected(true);
         if (useTestWallet) {
-          const testAddress = web3Service.getCurrentWalletAddress();
+          const testAddress = await web3Service.getAddress();
           toast({
             title: "Test Wallet Connected",
             description: `Connected to test wallet: ${testAddress?.slice(0, 10)}...`,
@@ -154,7 +156,21 @@ export function AIStrategyPanel() {
           setAnalysis(newAnalysis);
 
           if (isAutoTrading && allocatedFunds > 0) {
-            executeAutomatedTrade(newAnalysis);
+            // Use the new DEX-specific trading decision function
+            const poolLiquidity = tokens?.find(t => t.symbol === "BTC")?.liquidity || "1000000";
+            const dexDecision = await generateDexTradingDecision(
+              "USDC",
+              "WBTC",
+              Number(currentPrice),
+              priceHistory,
+              Number(poolLiquidity),
+              allocatedFunds
+            );
+            
+            // Execute trade based on the DEX-specific decision
+            if (dexDecision.confidence > 0.7) {
+              executeAutomatedDexTrade(dexDecision);
+            }
           }
         }
       } catch (error: unknown) {
@@ -174,17 +190,24 @@ export function AIStrategyPanel() {
     return () => clearInterval(interval);
   }, [trades, tokens, toast, isAutoTrading, allocatedFunds]);
 
-  async function executeAutomatedTrade(analysis: any) {
+  async function executeAutomatedDexTrade(decision: {
+    action: "BUY" | "SELL" | "HOLD";
+    tokenPair: string;
+    amount: number;
+    confidence: number;
+    reasoning: string[];
+    suggestedSlippage: number;
+  }) {
     if (!isAutoTrading || allocatedFunds <= 0) return;
 
     try {
-      if (analysis.action === "BUY" && analysis.confidence > 0.7) {
-        const amountIn = ethers.utils.parseUnits(allocatedFunds.toString(), 6);
+      if (decision.action === "BUY") {
+        const amountIn = ethers.utils.parseUnits(decision.amount.toString(), 6); // USDC has 6 decimals
         const result = await web3Service.executeSwap(
           USDC_ADDRESS,
-          BTC_ADDRESS,
+          WBTC_ADDRESS,
           amountIn,
-          maxSlippage
+          decision.suggestedSlippage
         );
 
         if (result.success && result.txHash) {
@@ -192,27 +215,27 @@ export function AIStrategyPanel() {
           await apiRequest("POST", "/api/trades", {
             tokenAId: 1, // USDC token ID
             tokenBId: 2, // WBTC token ID
-            amountA: allocatedFunds.toString(),
-            amountB: (allocatedFunds * (1 - maxSlippage / 100)).toString(),
+            amountA: decision.amount.toString(),
+            amountB: (decision.amount * (1 - decision.suggestedSlippage / 100)).toString(),
             isAI: true
           });
 
           toast({
-            title: "Trade Executed",
-            description: `Successfully executed buy order. TX: ${result.txHash.slice(0, 10)}...`,
+            title: "AI Trade Executed",
+            description: `Successfully executed buy order for ${decision.amount} USDC. TX: ${result.txHash.slice(0, 10)}...`,
           });
 
           queryClient.invalidateQueries({ queryKey: ["/api/trades"] });
         } else {
           throw new Error(result.error || "Trade failed");
         }
-      } else if (analysis.action === "SELL" && analysis.confidence > 0.7) {
-        const amountIn = ethers.utils.parseUnits(allocatedFunds.toString(), 8);
+      } else if (decision.action === "SELL") {
+        const amountIn = ethers.utils.parseUnits(decision.amount.toString(), 8); // WBTC has 8 decimals
         const result = await web3Service.executeSwap(
-          BTC_ADDRESS,
+          WBTC_ADDRESS,
           USDC_ADDRESS,
           amountIn,
-          maxSlippage
+          decision.suggestedSlippage
         );
 
         if (result.success && result.txHash) {
@@ -220,14 +243,14 @@ export function AIStrategyPanel() {
           await apiRequest("POST", "/api/trades", {
             tokenAId: 2, // WBTC token ID
             tokenBId: 1, // USDC token ID
-            amountA: allocatedFunds.toString(),
-            amountB: (allocatedFunds * (1 - maxSlippage / 100)).toString(),
+            amountA: decision.amount.toString(),
+            amountB: (decision.amount * (1 - decision.suggestedSlippage / 100)).toString(),
             isAI: true
           });
 
           toast({
-            title: "Trade Executed",
-            description: `Successfully executed sell order. TX: ${result.txHash.slice(0, 10)}...`,
+            title: "AI Trade Executed",
+            description: `Successfully executed sell order for ${decision.amount} WBTC. TX: ${result.txHash.slice(0, 10)}...`,
           });
 
           queryClient.invalidateQueries({ queryKey: ["/api/trades"] });
@@ -238,7 +261,7 @@ export function AIStrategyPanel() {
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : "Trade execution failed.";
       toast({
-        title: "Trade Execution Failed",
+        title: "AI Trade Execution Failed",
         description: errorMessage,
         variant: "destructive",
       });
@@ -300,151 +323,138 @@ export function AIStrategyPanel() {
                 <h3 className="font-semibold">AI Wallet</h3>
               </div>
               {!isWalletConnected ? (
-                <div className="flex gap-2">
-                  <Button onClick={() => connectWallet(false)}>
-                    Connect Wallet
-                  </Button>
-                  <Button
-                    onClick={() => connectWallet(true)}
-                    variant="outline"
-                  >
-                    Use Test Wallet
-                  </Button>
+                <div className="space-x-2">
+                  <Button size="sm" onClick={() => connectWallet(false)}>Connect Wallet</Button>
+                  <Button size="sm" variant="outline" onClick={() => connectWallet(true)}>Use Test Wallet</Button>
                 </div>
               ) : (
-                <div className="flex items-center gap-4">
-                  <div className="flex-1">
-                    <Input
-                      type="number"
-                      placeholder="Amount to allocate (USDC)"
-                      value={allocatedFunds || ""}
-                      onChange={(e) => setAllocatedFunds(Number(e.target.value))}
-                    />
-                    <p className="text-sm text-muted-foreground mt-1">
-                      Allocate USDC for trading
-                    </p>
-                  </div>
-                  <Button
-                    onClick={() => allocateFunds(allocatedFunds)}
-                    disabled={allocatedFunds <= 0}
-                  >
-                    Allocate Funds
-                  </Button>
+                <div className="flex items-center space-x-2">
+                  <span className="text-sm text-muted-foreground">Connected</span>
+                  <div className="h-2 w-2 rounded-full bg-green-500"></div>
                 </div>
               )}
             </div>
 
             {isWalletConnected && (
               <div className="space-y-4">
-                <TokenPairSelector
-                  selectedTokenA={selectedTokenA}
-                  selectedTokenB={selectedTokenB}
-                  onSelectTokenA={setSelectedTokenA}
-                  onSelectTokenB={setSelectedTokenB}
-                  amountA={swapAmountA}
-                  amountB={swapAmountB}
-                  onAmountAChange={setSwapAmountA}
-                  onAmountBChange={setSwapAmountB}
-                  isManualMode={isManualMode}
-                  onModeChange={setIsManualMode}
-                />
+                <div className="flex items-center justify-between">
+                  <span className="text-sm">Allocated Funds</span>
+                  <span className="font-semibold">${allocatedFunds.toLocaleString()}</span>
+                </div>
 
-                {!isManualMode && (
-                  <div className="flex items-center justify-between py-2">
-                    <div>
-                      <p className="font-medium">Auto-Trading</p>
-                      <p className="text-sm text-muted-foreground">
-                        {isAutoTrading ? "AI is actively trading" : "AI trading is paused"}
-                      </p>
-                    </div>
-                    <Switch
-                      checked={isAutoTrading}
-                      onCheckedChange={toggleAutoTrading}
-                      disabled={!isWalletConnected || allocatedFunds <= 0}
-                    />
+                <div className="flex items-center space-x-2">
+                  <Input
+                    type="number"
+                    placeholder="Amount to allocate"
+                    value={allocatedFunds === 0 ? "" : allocatedFunds}
+                    onChange={(e) => setAllocatedFunds(Number(e.target.value))}
+                    className="flex-1"
+                  />
+                  <Button size="sm" onClick={() => allocateFunds(allocatedFunds)}>Allocate</Button>
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <span className="text-sm">Max Slippage</span>
+                  <span className="font-semibold">{maxSlippage}%</span>
+                </div>
+
+                <div className="space-y-2">
+                  <Slider
+                    value={[maxSlippage]}
+                    min={0.1}
+                    max={5}
+                    step={0.1}
+                    onValueChange={(value) => setMaxSlippage(value[0])}
+                  />
+                  <div className="flex justify-between text-xs text-muted-foreground">
+                    <span>0.1%</span>
+                    <span>5%</span>
                   </div>
-                )}
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    <span className="text-sm">Auto-Trading</span>
+                    {isAutoTrading && (
+                      <div className="rounded-full bg-green-100 px-2 py-1 text-xs text-green-800">Active</div>
+                    )}
+                  </div>
+                  <Switch
+                    checked={isAutoTrading}
+                    onCheckedChange={toggleAutoTrading}
+                    disabled={allocatedFunds <= 0}
+                  />
+                </div>
+                
+                {/* DEX Integration Information */}
+                <div className="rounded-md bg-muted p-3">
+                  <h4 className="mb-2 font-semibold">DEX Integration</h4>
+                  <div className="space-y-1 text-sm">
+                    <div className="flex justify-between">
+                      <span>Router:</span>
+                      <span className="font-mono text-xs">{import.meta.env.VITE_UNISWAP_ROUTER_ADDRESS.slice(0, 6)}...{import.meta.env.VITE_UNISWAP_ROUTER_ADDRESS.slice(-4)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Factory:</span>
+                      <span className="font-mono text-xs">{import.meta.env.VITE_UNISWAP_FACTORY_ADDRESS.slice(0, 6)}...{import.meta.env.VITE_UNISWAP_FACTORY_ADDRESS.slice(-4)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Chain ID:</span>
+                      <span>{import.meta.env.VITE_CHAIN_ID}</span>
+                    </div>
+                  </div>
+                </div>
+                
+                {/* Token Pair Selector */}
+                <div className="space-y-2">
+                  <h4 className="font-semibold">Trading Pair</h4>
+                  <TokenPairSelector
+                    selectedTokenA={selectedTokenA}
+                    selectedTokenB={selectedTokenB}
+                    onSelectTokenA={setSelectedTokenA}
+                    onSelectTokenB={setSelectedTokenB}
+                    amountA={swapAmountA}
+                    amountB={swapAmountB}
+                    onAmountAChange={setSwapAmountA}
+                    onAmountBChange={setSwapAmountB}
+                  />
+                </div>
               </div>
             )}
           </div>
 
-          <div className="bg-muted rounded-lg p-4">
-            <h3 className="font-semibold mb-2">Strategy Analysis</h3>
-            {analysis ? (
-              <>
-                <p className="text-sm text-muted-foreground">{analysis.recommendation}</p>
-                <div className="mt-4 grid grid-cols-2 gap-4">
-                  <div>
-                    <p className="text-sm font-medium">Confidence</p>
-                    <p className="text-2xl font-bold">{Math.round(analysis.confidence * 100)}%</p>
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium">Action Signal</p>
-                    <p className={`text-2xl font-bold ${
-                      analysis.action === "BUY"
-                        ? "text-green-500"
-                        : analysis.action === "SELL"
-                        ? "text-red-500"
-                        : ""
-                    }`}>
-                      {analysis.action}
-                    </p>
-                  </div>
+          {analysis && (
+            <div className="space-y-4">
+              <h3 className="font-semibold">AI Market Analysis</h3>
+              <div className="rounded-md bg-muted p-3">
+                <p className="mb-2">{analysis.recommendation}</p>
+                <div className="mb-2 flex items-center space-x-2">
+                  <span className={`rounded-full px-2 py-1 text-xs ${
+                    analysis.action === "BUY" ? "bg-green-100 text-green-800" :
+                    analysis.action === "SELL" ? "bg-red-100 text-red-800" :
+                    "bg-yellow-100 text-yellow-800"
+                  }`}>
+                    {analysis.action}
+                  </span>
+                  <span className="text-sm text-muted-foreground">
+                    Confidence: {Math.round(analysis.confidence * 100)}%
+                  </span>
                 </div>
-                <div className="mt-4">
-                  <p className="text-sm font-medium mb-2">Reasoning:</p>
-                  <ul className="text-sm text-muted-foreground space-y-1">
-                    {analysis.reasoning.map((reason, index) => (
-                      <li key={index}>• {reason}</li>
-                    ))}
-                  </ul>
+                <div className="space-y-1">
+                  {analysis.reasoning.map((reason, i) => (
+                    <div key={i} className="text-sm">• {reason}</div>
+                  ))}
                 </div>
-              </>
-            ) : (
-              <p className="text-sm text-muted-foreground">Analyzing market conditions...</p>
-            )}
-          </div>
+              </div>
+            </div>
+          )}
 
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="font-semibold">AI Trading History</h3>
+          {trades && trades.length > 0 && (
+            <div className="space-y-4">
+              <h3 className="font-semibold">Performance</h3>
+              <PerformanceChart trades={trades} />
             </div>
-            <div className="h-[300px] w-full">
-              <PerformanceChart trades={trades || []} />
-            </div>
-            <div className="space-y-2">
-              {trades?.map((trade, index) => {
-                const tokenA = tokens?.find(t => t.id === trade.tokenAId);
-                const tokenB = tokens?.find(t => t.id === trade.tokenBId);
-
-                return (
-                  <div key={index} className="flex items-center justify-between p-3 bg-muted rounded-lg">
-                    <div>
-                      <p className="font-medium">
-                        {trade.timestamp ? new Date(trade.timestamp).toLocaleString() : 'No timestamp'}
-                        {trade.isAI ? " (AI Trade)" : " (Manual Trade)"}
-                      </p>
-                      <p className="text-sm text-muted-foreground">
-                        {tokenA?.symbol} → {tokenB?.symbol}: {Number(trade.amountA).toLocaleString()} → {Number(trade.amountB).toLocaleString()}
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      <p className={`font-medium ${
-                        Number(trade.amountB) > Number(trade.amountA)
-                          ? "text-green-500"
-                          : "text-red-500"
-                      }`}>
-                        {((Number(trade.amountB) - Number(trade.amountA)) / Number(trade.amountA) * 100).toFixed(2)}%
-                      </p>
-                      <p className="text-sm text-muted-foreground">
-                        {Number(trade.amountB) > Number(trade.amountA) ? "Profit" : "Loss"}
-                      </p>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
+          )}
 
           <div className="space-y-4">
             <h3 className="font-semibold">Active Strategies</h3>
