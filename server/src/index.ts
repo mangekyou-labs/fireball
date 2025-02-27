@@ -3,11 +3,28 @@ import fs from 'fs';
 import path from 'path';
 
 import express, { type Request, Response, NextFunction } from "express";
-import { registerRoutes } from "./routes";
-import { setupVite, serveStatic, log } from "./vite";
+import { registerRoutes } from "./routes.js";
+
+// Helper function for logging
+function log(message: string, source = "express") {
+  const formattedTime = new Date().toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: true,
+  });
+
+  console.log(`${formattedTime} [${source}] ${message}`);
+}
+
+console.log('Starting server...');
+console.log('Environment variables:');
+console.log('- DATABASE_URL is', process.env.DATABASE_URL ? 'set' : 'not set');
+console.log('- SONAR_API_KEY is', process.env.SONAR_API_KEY ? 'set' : 'not set');
+console.log('- PERPLEXITY_API_KEY is', process.env.PERPLEXITY_API_KEY ? 'set' : 'not set');
 
 // Load API key from client .env file if not already set
-if (!process.env.SONAR_API_KEY) {
+if (!process.env.SONAR_API_KEY && !process.env.PERPLEXITY_API_KEY) {
   try {
     const clientEnvPath = path.resolve(process.cwd(), 'client', '.env');
     if (fs.existsSync(clientEnvPath)) {
@@ -15,17 +32,43 @@ if (!process.env.SONAR_API_KEY) {
       const apiKeyMatch = envContent.match(/VITE_SONAR_API_KEY=(.+)/);
       if (apiKeyMatch && apiKeyMatch[1]) {
         process.env.SONAR_API_KEY = apiKeyMatch[1];
+        process.env.PERPLEXITY_API_KEY = apiKeyMatch[1];
         log('Loaded SONAR_API_KEY from client .env file');
+        console.log('- SONAR_API_KEY is now set from client .env file');
+        console.log('- PERPLEXITY_API_KEY is now set from client .env file');
+      } else {
+        log('SONAR_API_KEY not found in client .env file');
+        console.log('- SONAR_API_KEY not found in client .env file');
       }
+    } else {
+      log('Client .env file not found');
+      console.log('- Client .env file not found at', clientEnvPath);
     }
   } catch (error) {
     console.error('Error loading API key from client .env file:', error);
   }
 }
 
+if (!process.env.SONAR_API_KEY && !process.env.PERPLEXITY_API_KEY) {
+  console.error('WARNING: Neither SONAR_API_KEY nor PERPLEXITY_API_KEY is set. AI features will not work properly.');
+}
+
 const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
+
+// Add CORS headers
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+  
+  next();
+});
 
 app.use((req, res, next) => {
   const start = Date.now();
@@ -64,18 +107,14 @@ app.use((req, res, next) => {
     const status = err.status || err.statusCode || 500;
     const message = err.message || "Internal Server Error";
 
+    console.error('Server error:', err);
     res.status(status).json({ message });
     throw err;
   });
 
-  if (app.get("env") === "development") {
-    await setupVite(app, server);
-  } else {
-    serveStatic(app);
-  }
-
   const PORT = 5000;
   server.listen(PORT, "0.0.0.0", () => {
     log(`serving on port ${PORT}`);
+    console.log(`Server is running on http://localhost:${PORT}`);
   });
 })();

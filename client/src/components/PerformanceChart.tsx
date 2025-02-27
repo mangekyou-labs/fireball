@@ -49,11 +49,11 @@ export function PerformanceChart({ trades }: PerformanceChartProps) {
                   <Card className="p-2">
                     <div className="grid grid-cols-2 gap-2">
                       <span className="font-medium">P&L:</span>
-                      <span>{payload[0].value.toFixed(2)}%</span>
+                      <span>{typeof payload[0]?.value === 'number' ? payload[0].value.toFixed(2) : '0.00'}%</span>
                       <span className="font-medium">Time:</span>
-                      <span>{new Date(payload[0].payload.timestamp).toLocaleTimeString()}</span>
+                      <span>{payload[0]?.payload?.timestamp ? new Date(payload[0].payload.timestamp).toLocaleTimeString() : ''}</span>
                       <span className="font-medium">Volume:</span>
-                      <span>${payload[0].payload.volume.toLocaleString()}</span>
+                      <span>${payload[0]?.payload?.volume ? payload[0].payload.volume.toLocaleString() : '0'}</span>
                     </div>
                   </Card>
                 );

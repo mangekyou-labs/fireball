@@ -18,7 +18,7 @@ export default function Dashboard() {
           <h1 className="text-2xl font-bold">DEX Dashboard</h1>
           <Link href="/swap">
             <Button>
-              Swap Tokens
+              Swap
               <ArrowRight className="ml-2 h-4 w-4" />
             </Button>
           </Link>
@@ -27,7 +27,7 @@ export default function Dashboard() {
         <Tabs defaultValue="overview" className="space-y-6">
           <TabsList>
             <TabsTrigger value="overview">Overview</TabsTrigger>
-            <TabsTrigger value="ai">AI Trading</TabsTrigger>
+            <TabsTrigger value="ai">AI Auto-Trading</TabsTrigger>
             <TabsTrigger value="positions">Your Positions</TabsTrigger>
           </TabsList>
 

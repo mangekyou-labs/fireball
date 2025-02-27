@@ -11,16 +11,20 @@ function initializeOpenAI() {
   }
 
   try {
+    console.log("Initializing OpenAI client with API key:", apiKey.substring(0, 5) + "...");
     return new OpenAI({
       apiKey,
       baseURL: 'https://api.perplexity.ai',
       dangerouslyAllowBrowser: true
     });
   } catch (error) {
-    console.error("Failed to initialize Sonar Pro client:", error);
+    console.error("Failed to initialize Perplexity client:", error);
     return null;
   }
 }
+
+// Initialize the OpenAI client
+const client = initializeOpenAI();
 
 interface MarketAnalysis {
   recommendation: string;
@@ -39,14 +43,17 @@ export async function analyzeMarketConditions(
     // Instead of direct API call, use a fallback approach
     // First try to use the proxy if available
     try {
-      const response = await apiRequest("POST", "/api/ai/analyze", {
-        currentPrice,
-        priceHistory,
-        volume,
-        rsi
+      const response = await apiRequest<MarketAnalysis>("/api/ai/analyze", {
+        method: "POST",
+        body: {
+          currentPrice,
+          priceHistory,
+          volume,
+          rsi
+        }
       });
       
-      return response as unknown as MarketAnalysis;
+      return response;
     } catch (proxyError) {
       console.warn("Proxy API call failed, falling back to client-side analysis:", proxyError);
       
@@ -133,8 +140,11 @@ export async function generateTradingStrategy(
   try {
     // Use a fallback approach similar to analyzeMarketConditions
     try {
-      const response = await apiRequest("POST", "/api/ai/strategy", { trades });
-      return response as unknown as string;
+      const response = await apiRequest<string>("/api/ai/strategy", {
+        method: "POST",
+        body: { trades }
+      });
+      return response;
     } catch (proxyError) {
       console.warn("Proxy API call failed, falling back to client-side strategy:", proxyError);
       
@@ -223,16 +233,19 @@ export async function generateDexTradingDecision(
   try {
     // Try to use the proxy if available
     try {
-      const response = await apiRequest("POST", "/api/ai/dex-decision", {
-        tokenA,
-        tokenB,
-        currentPrice,
-        priceHistory,
-        poolLiquidity,
-        userBalance
+      const response = await apiRequest<TradingDecision>("/api/ai/dex-decision", {
+        method: "POST",
+        body: {
+          tokenA,
+          tokenB,
+          currentPrice,
+          priceHistory,
+          poolLiquidity,
+          userBalance
+        }
       });
       
-      return response as unknown as TradingDecision;
+      return response;
     } catch (proxyError) {
       console.warn("Proxy API call failed, falling back to client-side decision:", proxyError);
       
@@ -320,8 +333,49 @@ function generateLocalDexDecision(
     confidence += 0.1;
   }
   
-  // Calculate the actual amount based on the percentage
-  const actualAmount = (suggestedAmount / 100) * userBalance;
+  // Calculate the actual amount based on the percentage and enforce minimum trade amounts
+  let actualAmount = (suggestedAmount / 100) * userBalance;
+  
+  // Apply minimum trade amounts based on action type
+  if (action === "BUY") {
+    // For buying with USDC (assuming tokenA is USDC)
+    // Since our testnet USDC has 18 decimals (not the standard 6),
+    // we'll use a reasonable minimum amount
+    const minBuyAmount = 5.0; // Minimum 5 USDC for buy trades
+    
+    if (actualAmount < minBuyAmount && actualAmount > 0) {
+      actualAmount = minBuyAmount;
+      reasoning.push(`Increased trade amount to minimum threshold of ${minBuyAmount} ${tokenA}`);
+    }
+  } else if (action === "SELL") {
+    // For selling WBTC or other tokens (assuming tokenB is being sold)
+    // Since our testnet WBTC has 18 decimals (not the standard 8),
+    // we'll use a reasonable minimum amount
+    const minSellAmount = 0.005; // Minimum 0.005 WBTC for sell trades
+    
+    if (actualAmount < minSellAmount && actualAmount > 0) {
+      actualAmount = minSellAmount;
+      reasoning.push(`Increased trade amount to minimum threshold of ${minSellAmount} ${tokenB}`);
+    }
+  }
+  
+  // If the calculated amount is extremely small (could happen with very low balance),
+  // enforce HOLD instead of trying to execute a meaningless trade
+  if (action !== "HOLD" && (actualAmount <= 0 || actualAmount < 0.0001)) {
+    action = "HOLD";
+    actualAmount = 0;
+    reasoning.push("Amount too small to execute a meaningful trade, changing to HOLD");
+    confidence = 0.8; // High confidence in HOLD when amounts are too small
+  }
+  
+  // Additional validation for scientific notation that might cause errors
+  if (action !== "HOLD" && actualAmount.toString().includes('e-')) {
+    // Check if the number is in scientific notation with negative exponent (very small)
+    action = "HOLD";
+    actualAmount = 0;
+    reasoning.push("Amount is too small (scientific notation detected), changing to HOLD");
+    confidence = 0.8;
+  }
   
   // Cap confidence between 0 and 1
   confidence = Math.max(0, Math.min(1, confidence));

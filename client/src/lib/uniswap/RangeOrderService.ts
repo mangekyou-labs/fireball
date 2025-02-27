@@ -190,6 +190,150 @@ export class RangeOrderService {
     }
   }
 
+  async createSellLimitOrder(
+    tokenIn: Token,
+    tokenOut: Token,
+    amountIn: string,
+    targetPrice: string,
+    poolFee: number,
+    slippageTolerance: number = 0.5
+  ): Promise<{ success: boolean; orderId?: number; error?: string }> {
+    try {
+      if (!this.signer) {
+        throw new Error('Wallet not connected');
+      }
+
+      const walletAddress = await this.signer.getAddress();
+
+      // Get pool info
+      const poolContract = new ethers.Contract(
+        await this.getPoolAddress(tokenIn, tokenOut, poolFee),
+        [
+          'function slot0() external view returns (uint160 sqrtPriceX96, int24 tick, uint16 observationIndex, uint16 observationCardinality, uint16 observationCardinalityNext, uint8 feeProtocol, bool unlocked)',
+          'function liquidity() external view returns (uint128)',
+          'function tickSpacing() external view returns (int24)',
+        ],
+        this.provider
+      );
+
+      const [slot0, liquidity, tickSpacing] = await Promise.all([
+        poolContract.slot0(),
+        poolContract.liquidity(),
+        poolContract.tickSpacing(),
+      ]);
+
+      // Create pool instance
+      const pool = new Pool(
+        tokenIn,
+        tokenOut,
+        poolFee,
+        slot0.sqrtPriceX96.toString(),
+        liquidity.toString(),
+        slot0.tick
+      );
+
+      // Calculate target tick
+      const targetPriceObj = new Price(
+        tokenIn,
+        tokenOut,
+        ethers.utils.parseUnits('1', tokenIn.decimals).toString(),
+        ethers.utils.parseUnits(targetPrice, tokenOut.decimals).toString()
+      );
+
+      const targetTick = nearestUsableTick(
+        priceToClosestTick(targetPriceObj),
+        tickSpacing
+      );
+
+      // For a sell limit order, we provide tokenIn above the current price
+      const position = Position.fromAmounts({
+        pool,
+        tickLower: targetTick,
+        tickUpper: targetTick + tickSpacing,
+        amount0: '0', // For sell limit orders, we only provide token1
+        amount1: amountIn,
+        useFullPrecision: true,
+      });
+
+      // Get exact amounts needed
+      const { amount0: amount0Required, amount1: amount1Required } = position.mintAmounts;
+
+      // Approve token spending with exact amount
+      const tokenContract = new ethers.Contract(
+        tokenIn.address,
+        [
+          'function approve(address spender, uint256 amount) external returns (bool)',
+          'function allowance(address owner, address spender) external view returns (uint256)'
+        ],
+        this.signer
+      );
+
+      // First, check current allowance
+      const allowance = await tokenContract.allowance(walletAddress, NONFUNGIBLE_POSITION_MANAGER_ADDRESS);
+      if (allowance.lt(amount1Required.toString())) {
+        console.log('Current allowance:', allowance.toString());
+        console.log('Required amount:', amount1Required.toString());
+        const approveTx = await tokenContract.approve(NONFUNGIBLE_POSITION_MANAGER_ADDRESS, amount1Required.toString());
+        console.log('Waiting for approval transaction...');
+        const approvalReceipt = await approveTx.wait();
+        console.log('Approval transaction confirmed:', approvalReceipt.transactionHash);
+      } else {
+        console.log('Sufficient allowance already exists');
+      }
+
+      // Create mint options
+      const mintOptions: MintOptions = {
+        recipient: walletAddress,
+        deadline: Math.floor(Date.now() / 1000) + 60 * 20,
+        slippageTolerance: new Percent(slippageTolerance * 100, 10_000),
+      };
+
+      // Get mint parameters
+      const { calldata, value } = NonfungiblePositionManager.addCallParameters(
+        position,
+        mintOptions
+      );
+
+      // Send transaction
+      const tx = await this.signer.sendTransaction({
+        data: calldata,
+        to: NONFUNGIBLE_POSITION_MANAGER_ADDRESS,
+        value: ethers.BigNumber.from(value),
+        gasLimit: ethers.utils.hexlify(1000000),
+      });
+
+      const receipt = await tx.wait();
+      
+      // Parse position ID from logs
+      const positionManagerInterface = new ethers.utils.Interface([
+        'event IncreaseLiquidity(uint256 indexed tokenId, uint128 liquidity, uint256 amount0, uint256 amount1)',
+        'event Transfer(address indexed from, address indexed to, uint256 indexed tokenId)',
+      ]);
+
+      const transferLog = receipt.logs.find(
+        log => log.address.toLowerCase() === NONFUNGIBLE_POSITION_MANAGER_ADDRESS.toLowerCase() &&
+        log.topics[0] === positionManagerInterface.getEventTopic('Transfer')
+      );
+
+      if (!transferLog) {
+        throw new Error('Could not find position ID in transaction logs');
+      }
+
+      const orderId = ethers.BigNumber.from(transferLog.topics[3]).toNumber();
+
+      return {
+        success: true,
+        orderId,
+      };
+    } catch (error) {
+      console.error('Error creating sell limit order:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error occurred',
+      };
+    }
+  }
+
   private async getPoolAddress(tokenA: Token, tokenB: Token, fee: number): Promise<string> {
     const factoryContract = new ethers.Contract(
       import.meta.env.VITE_UNISWAP_FACTORY_ADDRESS,
