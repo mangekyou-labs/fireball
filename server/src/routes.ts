@@ -3,6 +3,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage.js";
 import { insertTokenSchema, insertTradeSchema, insertStrategySchema } from "@shared/schema.js";
 import fetch from "node-fetch";
+import { ethers } from "ethers";
 
 // Perplexity API configuration
 const PERPLEXITY_API_URL = "https://api.perplexity.ai";
@@ -10,6 +11,36 @@ const PERPLEXITY_API_KEY = process.env.PERPLEXITY_API_KEY || process.env.SONAR_A
 
 // Log API key status
 console.log('PERPLEXITY_API_KEY is', PERPLEXITY_API_KEY ? 'set' : 'not set');
+
+// Define the price data interface
+interface PriceData {
+  currentPrice: number;
+  priceHistory: number[];
+  volume: number;
+  rsi: number;
+}
+
+// Mock price data for development
+const mockPriceData: Record<string, PriceData> = {
+  'USDC/USDT': {
+    currentPrice: 1.0001,
+    priceHistory: [1.0002, 1.0001, 1.0003, 1.0002, 1.0001, 1.0000, 0.9999, 1.0001, 1.0002, 1.0001],
+    volume: 25000000,
+    rsi: 52
+  },
+  'USDC/WBTC': {
+    currentPrice: 0.000025,
+    priceHistory: [0.000024, 0.000025, 0.000026, 0.000025, 0.000024, 0.000023, 0.000024, 0.000025, 0.000026, 0.000025],
+    volume: 15000000,
+    rsi: 58
+  },
+  'USDC/WETH': {
+    currentPrice: 0.00042,
+    priceHistory: [0.00041, 0.00042, 0.00043, 0.00044, 0.00043, 0.00042, 0.00041, 0.00042, 0.00043, 0.00042],
+    volume: 20000000,
+    rsi: 55
+  }
+};
 
 // Trading job management
 const activeJobs = new Map<number, NodeJS.Timeout>();
@@ -82,6 +113,21 @@ let memeStrategyConfig: MemeStrategyConfig = {
   investmentPercentage: 10
 };
 
+// Add the ArbitrageStrategyConfig interface with the other strategy config interfaces
+interface ArbitrageStrategyConfig {
+  minPriceDiscrepancy: number;
+  maxSlippage: number;
+  gasConsideration: boolean;
+  refreshInterval: number;
+  maxPools: number;
+  preferredDEXes: string[];
+  autoExecute: boolean;
+  maxTradeSize: number;
+  minProfitThreshold: number;
+  useLiquidityFiltering: boolean;
+  liquidityThreshold: number;
+}
+
 export async function registerRoutes(app: Express): Promise<Server> {
   // Token routes
   app.get("/api/tokens", async (_req, res) => {
@@ -114,9 +160,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Strategy routes
-  app.get("/api/strategies", async (_req, res) => {
-    const strategies = await storage.getStrategies();
-    res.json(strategies);
+  app.get("/api/strategies", async (req, res) => {
+    try {
+      console.log("Fetching strategies...");
+      const strategies = await storage.getStrategies();
+      console.log(`Found ${strategies.length} strategies`);
+      res.json({ strategies });
+    } catch (error) {
+      console.error("Error fetching strategies:", error);
+      res.status(500).json({ 
+        error: "Failed to fetch strategies", 
+        details: error instanceof Error ? error.message : String(error)
+      });
+    }
   });
 
   app.post("/api/strategies", async (req, res) => {
@@ -142,13 +198,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const id = parseInt(req.params.id);
     
     try {
+      console.log(`Toggling strategy ${id} to ${req.query.enabled}`);
+      
       // Check if this is the memecoin strategy
-      const allStrategies = await storage.getAllStrategies();
+      const allStrategies = await storage.getStrategies();
       const isMemeStrategy = allStrategies.some(s => 
         s.id === id && s.name === "Memecoin Bracket Orders"
       );
 
-      const strategy = await storage.toggleStrategy(id, req.query.enabled === 'true');
+      const strategy = await storage.updateStrategy(id, req.query.enabled === 'true');
       
       // If enabling the memecoin strategy, disable all others
       if (isMemeStrategy && req.query.enabled === 'true') {
@@ -159,25 +217,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
         
         // Disable all other strategies
         for (const s of otherStrategies) {
-          await storage.toggleStrategy(s.id, false);
+          await storage.updateStrategy(s.id, false);
         }
       }
       
-      // If enabling any other strategy, disable memecoin strategy
-      if (!isMemeStrategy && req.query.enabled === 'true') {
+      // If enabling any other strategy, disable the memecoin strategy
+      else if (!isMemeStrategy && req.query.enabled === 'true') {
         const memeStrategy = allStrategies.find(s => 
           s.name === "Memecoin Bracket Orders" && s.enabled === true
         );
         
         if (memeStrategy) {
-          await storage.toggleStrategy(memeStrategy.id, false);
+          await storage.updateStrategy(memeStrategy.id, false);
         }
       }
       
-      return res.json({ strategy });
+      res.json({ strategy });
     } catch (error) {
-      console.error(error);
-      return res.status(500).json({ error: 'Error toggling strategy' });
+      console.error(`Error toggling strategy ${id}:`, error);
+      res.status(500).json({ 
+        error: "Failed to toggle strategy", 
+        details: error instanceof Error ? error.message : String(error)
+      });
     }
   });
 
@@ -196,7 +257,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       console.log("Using PERPLEXITY_API_KEY:", PERPLEXITY_API_KEY.substring(0, 5) + "...");
-      const { currentPrice, priceHistory, volume, rsi } = req.body;
+      const { currentPrice, priceHistory, volume, rsi, pair, strategyType } = req.body;
 
       const prompt = `
 Analyze these cryptocurrency market conditions and provide a trading recommendation:
@@ -205,6 +266,8 @@ Current Price: $${currentPrice}
 24h Price History: ${priceHistory.join(", ")}
 24h Trading Volume: $${volume}
 RSI: ${rsi}
+Trading Pair: ${pair || "USDC/USDT"}
+${strategyType ? `Strategy Type: ${strategyType}` : ""}
 
 Provide analysis in JSON format:
 {
@@ -212,6 +275,24 @@ Provide analysis in JSON format:
   "confidence": "Number between 0 and 1",
   "action": "BUY, SELL, or HOLD",
   "reasoning": ["Reason 1", "Reason 2", "Reason 3"]
+  ${strategyType ? `,
+  "strategySpecificInsights": {
+    "${strategyType}": {
+      "recommendation": "Strategy-specific recommendation",
+      "confidence": "Number between 0 and 1",
+      "action": "BUY, SELL, or HOLD",
+      "reasoning": ["Strategy-specific reason 1", "Strategy-specific reason 2"]
+    }
+  }` : ""}
+  ${pair ? `,
+  "pairSpecificInsights": {
+    "${pair}": {
+      "recommendation": "Pair-specific recommendation",
+      "confidence": "Number between 0 and 1",
+      "action": "BUY, SELL, or HOLD",
+      "reasoning": ["Pair-specific reason 1", "Pair-specific reason 2"]
+    }
+  }` : ""}
 }
 `;
 
@@ -233,7 +314,6 @@ Provide analysis in JSON format:
               content: prompt,
             },
           ],
-          response_format: { type: "json_object" },
           temperature: 0.7,
         })
       });
@@ -387,7 +467,6 @@ Provide analysis in JSON format:
               content: prompt,
             },
           ],
-          response_format: { type: "json_object" },
           temperature: 0.7,
         })
       });
@@ -541,12 +620,24 @@ Provide analysis in JSON format:
 
   app.get("/api/trading/status", async (req, res) => {
     try {
-      const { userAddress } = req.query;
+      const { userAddress, aiWalletAddress } = req.query;
+      
+      if (!userAddress) {
+        return res.status(400).json({ 
+          success: false, 
+          error: "User address is required" 
+        });
+      }
       
       // Get active trading sessions for the user
       const sessions = await storage.getTradingSessions(userAddress as string);
       
-      res.json(sessions);
+      // Filter by AI wallet address if provided
+      const filteredSessions = aiWalletAddress 
+        ? sessions.filter(session => session.aiWalletAddress === aiWalletAddress)
+        : sessions;
+      
+      res.json(filteredSessions);
     } catch (error) {
       console.error("Error fetching trading status:", error);
       res.status(500).json({ 
@@ -556,65 +647,59 @@ Provide analysis in JSON format:
     }
   });
 
-  // Add endpoint to get AI wallets for a user
+  // Add endpoint to create and manage AI wallets
   app.get("/api/wallets", async (req, res) => {
     try {
       const { userAddress } = req.query;
       
-      console.log(`Received request to /api/wallets with userAddress: ${userAddress}`);
-      
       if (!userAddress) {
-        console.error("Missing userAddress in request to /api/wallets");
         return res.status(400).json({ 
           success: false, 
           error: "User address is required" 
         });
       }
       
-      // Get all trading sessions for the user
-      console.log(`Fetching trading sessions for user: ${userAddress}`);
-      const sessions = await storage.getTradingSessions(userAddress as string);
-      console.log(`Found ${sessions.length} trading sessions for user ${userAddress}`);
-      
-      // Create a map to store the most recent session for each AI wallet
-      const walletsMap = new Map();
-      
-      sessions.forEach(session => {
-        console.log(`Processing session #${session.id} for AI wallet ${session.aiWalletAddress}`);
-        const existingWallet = walletsMap.get(session.aiWalletAddress);
-        
-        // If this wallet doesn't exist in our map yet, or if this session is newer than the one we have
-        if (!existingWallet || 
-            (session.createdAt && existingWallet.createdAt && 
-             new Date(session.createdAt).getTime() > new Date(existingWallet.createdAt).getTime())) {
-          walletsMap.set(session.aiWalletAddress, {
-            id: session.id,
-            userAddress: session.userAddress,
-            aiWalletAddress: session.aiWalletAddress,
-            allocatedAmount: session.allocatedAmount,
-            createdAt: session.createdAt,
-            isActive: session.isActive
-          });
-        }
-      });
-      
-      // Convert map to array and sort by creation date (newest first)
-      const wallets = Array.from(walletsMap.values())
-        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-      
-      console.log(`Returning ${wallets.length} unique AI wallets for user ${userAddress}`);
-      
-      // Set CORS headers to ensure client can access the response
-      res.header('Access-Control-Allow-Origin', '*');
-      res.header('Access-Control-Allow-Methods', 'GET');
-      res.header('Access-Control-Allow-Headers', 'Content-Type');
+      // Get AI wallets for the user
+      const wallets = await storage.getAIWallets(userAddress as string);
       
       res.json(wallets);
     } catch (error) {
       console.error("Error fetching AI wallets:", error);
       res.status(500).json({ 
         success: false, 
-        error: error instanceof Error ? error.message : "Failed to fetch AI wallets" 
+        error: "Failed to fetch AI wallets" 
+      });
+    }
+  });
+
+  app.post("/api/wallets", async (req, res) => {
+    try {
+      const { userAddress, aiWalletAddress, allocatedAmount } = req.body;
+      
+      if (!userAddress || !aiWalletAddress || !allocatedAmount) {
+        return res.status(400).json({ 
+          success: false, 
+          error: "User address, AI wallet address, and allocated amount are required" 
+        });
+      }
+      
+      // Create a new AI wallet
+      const wallet = await storage.createAIWallet({
+        userAddress,
+        aiWalletAddress,
+        allocatedAmount,
+        isActive: false
+      });
+      
+      res.json({ 
+        success: true, 
+        wallet 
+      });
+    } catch (error) {
+      console.error("Error creating AI wallet:", error);
+      res.status(500).json({ 
+        success: false, 
+        error: "Failed to create AI wallet" 
       });
     }
   });
@@ -637,6 +722,84 @@ Provide analysis in JSON format:
       investmentPercentage: body.investmentPercentage
     };
     return { success: true };
+  });
+
+  // Get arbitrage strategy configuration
+  app.get('/api/strategy-config/arbitrage', async (req, res) => {
+    try {
+      console.log("Fetching arbitrage strategy configuration...");
+      const result = await storage.getArbitrageStrategy();
+      console.log("Arbitrage strategy configuration fetched successfully");
+      res.json({ config: result.config });
+    } catch (error) {
+      console.error('Error getting arbitrage strategy config:', error);
+      res.status(500).json({ 
+        error: 'Failed to get arbitrage strategy configuration',
+        details: error instanceof Error ? error.message : String(error)
+      });
+    }
+  });
+  
+  // Save arbitrage strategy configuration
+  app.post('/api/strategy-config/arbitrage', async (req, res) => {
+    try {
+      console.log("Saving arbitrage strategy configuration...");
+      const config: ArbitrageStrategyConfig = req.body;
+      await storage.saveArbitrageStrategyConfig(config);
+      console.log("Arbitrage strategy configuration saved successfully");
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Error saving arbitrage strategy config:', error);
+      res.status(500).json({ 
+        error: 'Failed to save arbitrage strategy configuration',
+        details: error instanceof Error ? error.message : String(error)
+      });
+    }
+  });
+
+  // Add endpoint to get pool price data
+  app.get("/api/pool/price-data", async (req, res) => {
+    try {
+      const { tokenA, tokenB } = req.query;
+      
+      if (!tokenA || !tokenB) {
+        return res.status(400).json({ 
+          success: false, 
+          error: "Both tokenA and tokenB are required" 
+        });
+      }
+      
+      const pairKey = `${tokenA}/${tokenB}`;
+      
+      // Check if we have mock data for this pair
+      if (mockPriceData[pairKey]) {
+        return res.json(mockPriceData[pairKey]);
+      }
+      
+      // If we don't have mock data for this specific pair, try the reverse pair
+      const reversePairKey = `${tokenB}/${tokenA}`;
+      if (mockPriceData[reversePairKey]) {
+        // For reversed pairs, we need to invert the price
+        const data = { ...mockPriceData[reversePairKey] };
+        data.currentPrice = 1 / data.currentPrice;
+        data.priceHistory = data.priceHistory.map((price: number) => 1 / price);
+        return res.json(data);
+      }
+      
+      // If we don't have data for either pair, return default data
+      return res.json({
+        currentPrice: 1.0,
+        priceHistory: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
+        volume: 10000000,
+        rsi: 50
+      });
+    } catch (error) {
+      console.error("Error fetching pool price data:", error);
+      res.status(500).json({ 
+        success: false, 
+        error: "Failed to fetch pool price data" 
+      });
+    }
   });
 
   const httpServer = createServer(app);

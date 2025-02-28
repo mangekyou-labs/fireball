@@ -56,6 +56,7 @@ export const USDC = new Token(
 export const getWethContract = () => new ethers.Contract(WETH.address, ERC20ABI, web3Provider);
 export const getWbtcContract = () => new ethers.Contract(WBTC.address, ERC20ABI, web3Provider);
 export const getUsdcContract = () => new ethers.Contract(USDC.address, ERC20ABI, web3Provider);
+export const getUsdtContract = () => new ethers.Contract(USDT.address, ERC20ABI, web3Provider);
 
 const factoryContract = new ethers.Contract(V3_FACTORY_ADDRESS, IUniswapV3FactoryABI.abi, web3Provider);
 
@@ -138,50 +139,77 @@ export const getPrice = async (
   deadline: number,
   walletAddress: string
 ): Promise<[SwapTransaction | undefined, string | undefined, string | undefined]> => {
-  if (!inputAmount || !walletAddress) {
+  if (!inputAmount || !walletAddress || parseFloat(inputAmount) <= 0) {
     console.error("Invalid input parameters");
     return [undefined, undefined, undefined];
   }
 
-  const wei = ethers.utils.parseUnits(inputAmount, inputToken.decimals);
-  const pool = await getPool(inputToken, outputToken);
+  try {
+    console.log(`Getting price for ${inputAmount} ${inputToken.symbol} to ${outputToken.symbol}`);
+    console.log(`Input token decimals: ${inputToken.decimals}, Output token decimals: ${outputToken.decimals}`);
+    
+    const wei = ethers.utils.parseUnits(inputAmount, inputToken.decimals);
+    console.log(`Parsed input amount: ${wei.toString()}`);
+    
+    const pool = await getPool(inputToken, outputToken);
+    console.log(`Pool found: ${pool.token0.symbol}/${pool.token1.symbol}`);
+    console.log(`Pool price: ${pool.token1Price.toFixed(6)}`);
 
-  // Calculate output amount
-  const outputAmount = parseFloat(inputAmount) * parseFloat(pool.token1Price.toFixed(3));
-  const minimumOutputAmount = outputAmount * (1 - Number(slippageAmount) / 100);
+    // Calculate output amount
+    const outputAmount = parseFloat(inputAmount) * parseFloat(pool.token1Price.toFixed(6));
+    const minimumOutputAmount = outputAmount * (1 - Number(slippageAmount) / 100);
+    
+    console.log(`Calculated output amount: ${outputAmount}`);
+    console.log(`Minimum output amount with slippage (${slippageAmount}%): ${minimumOutputAmount}`);
 
-  const parsedAmountOut = ethers.utils.parseUnits(
-    minimumOutputAmount.toString(),
-    outputToken.decimals
-  );
+    // Ensure we have a valid output amount
+    if (isNaN(minimumOutputAmount) || minimumOutputAmount <= 0) {
+      console.error("Invalid output amount calculated");
+      return [undefined, undefined, undefined];
+    }
 
-  // Prepare swap parameters
-  const params = {
-    tokenIn: inputToken.address,
-    tokenOut: outputToken.address,
-    fee: POOL_FEE,
-    recipient: walletAddress,
-    deadline: deadline,
-    amountIn: wei,
-    amountOutMinimum: parsedAmountOut,
-    sqrtPriceLimitX96: 0
-  };
+    const parsedAmountOut = ethers.utils.parseUnits(
+      minimumOutputAmount.toFixed(outputToken.decimals),
+      outputToken.decimals
+    );
+    console.log(`Parsed output amount: ${parsedAmountOut.toString()}`);
 
-  // Create transaction
-  const transaction: SwapTransaction = {
-    data: new ethers.utils.Interface(ISwapRouterABI.abi).encodeFunctionData(
-      'exactInputSingle',
-      [params]
-    ),
-    to: V3_SWAP_ROUTER_ADDRESS,
-    value: BigNumber.from(0),
-    from: walletAddress,
-    gasLimit: ethers.utils.hexlify(1000000)
-  };
+    // Prepare swap parameters
+    const params = {
+      tokenIn: inputToken.address,
+      tokenOut: outputToken.address,
+      fee: POOL_FEE,
+      recipient: walletAddress,
+      deadline: deadline,
+      amountIn: wei,
+      amountOutMinimum: parsedAmountOut,
+      sqrtPriceLimitX96: 0
+    };
+    
+    console.log("Swap parameters:", JSON.stringify(params, (key, value) => 
+      typeof value === 'bigint' || BigNumber.isBigNumber(value) ? value.toString() : value
+    ));
 
-  const ratio = (Number(inputAmount) / Number(minimumOutputAmount)).toFixed(3);
+    // Create transaction
+    const transaction: SwapTransaction = {
+      data: new ethers.utils.Interface(ISwapRouterABI.abi).encodeFunctionData(
+        'exactInputSingle',
+        [params]
+      ),
+      to: V3_SWAP_ROUTER_ADDRESS,
+      value: BigNumber.from(0),
+      from: walletAddress,
+      gasLimit: ethers.utils.hexlify(1000000)
+    };
 
-  return [transaction, minimumOutputAmount.toString(), ratio];
+    const ratio = (outputAmount / Number(inputAmount)).toFixed(6);
+    console.log(`Exchange ratio: 1 ${inputToken.symbol} = ${ratio} ${outputToken.symbol}`);
+
+    return [transaction, minimumOutputAmount.toString(), ratio];
+  } catch (error) {
+    console.error("Error in getPrice:", error);
+    throw error;
+  }
 };
 
 export const runSwap = async (
@@ -189,24 +217,83 @@ export const runSwap = async (
   signer: ethers.Signer,
   inputToken: Token
 ): Promise<ethers.providers.TransactionResponse> => {
-  const approvalAmount = ethers.utils.parseUnits('10', 18).toString();
-  
-  // Get the appropriate token contract based on input token
-  let tokenContract;
-  if (inputToken.address === WBTC.address) {
-    tokenContract = getWbtcContract();
-  } else if (inputToken.address === WETH.address) {
-    tokenContract = getWethContract();
-  } else if (inputToken.address === USDC.address) {
-    tokenContract = getUsdcContract();
-  } else {
-    throw new Error('Unsupported input token');
+  try {
+    console.log(`Starting swap process for ${inputToken.symbol}`);
+    
+    // Use a higher approval amount to ensure sufficient allowance
+    const approvalAmount = ethers.utils.parseUnits('1000000', inputToken.decimals).toString();
+    console.log(`Setting approval amount: ${approvalAmount} (${inputToken.decimals} decimals)`);
+    
+    // Get the appropriate token contract based on input token
+    let tokenContract;
+    if (inputToken.address === WBTC.address) {
+      tokenContract = getWbtcContract();
+    } else if (inputToken.address === WETH.address) {
+      tokenContract = getWethContract();
+    } else if (inputToken.address === USDC.address) {
+      tokenContract = getUsdcContract();
+    } else if (inputToken.address === USDT.address) {
+      tokenContract = getUsdtContract();
+    } else {
+      throw new Error(`Unsupported input token: ${inputToken.symbol}`);
+    }
+
+    // Check current allowance
+    const walletAddress = await signer.getAddress();
+    console.log(`Checking allowance for ${walletAddress}`);
+    
+    const currentAllowance = await tokenContract.connect(signer).allowance(
+      walletAddress,
+      V3_SWAP_ROUTER_ADDRESS
+    );
+    
+    console.log(`Current allowance: ${currentAllowance.toString()}`);
+    console.log(`Required amount: ${transaction.value ? transaction.value.toString() : approvalAmount}`);
+
+    // Only approve if needed
+    if (ethers.BigNumber.from(currentAllowance).lt(transaction.value || approvalAmount)) {
+      console.log(`Approving ${inputToken.symbol} for swap`);
+      
+      try {
+        const approveTx = await tokenContract.connect(signer).approve(
+          V3_SWAP_ROUTER_ADDRESS,
+          approvalAmount
+        );
+        
+        console.log(`Approval transaction sent: ${approveTx.hash}`);
+        console.log('Waiting for approval transaction to be mined...');
+        
+        const approveReceipt = await approveTx.wait();
+        console.log(`Approval confirmed in block ${approveReceipt.blockNumber}`);
+      } catch (error) {
+        console.error("Error during token approval:", error);
+        throw new Error(`Failed to approve ${inputToken.symbol}: ${error.message}`);
+      }
+    } else {
+      console.log(`Sufficient allowance exists for ${inputToken.symbol}`);
+    }
+
+    // Execute the swap
+    console.log('Sending swap transaction...');
+    console.log('Transaction details:', {
+      to: transaction.to,
+      from: transaction.from,
+      value: transaction.value.toString(),
+      gasLimit: transaction.gasLimit
+    });
+    
+    try {
+      const tx = await signer.sendTransaction(transaction);
+      console.log(`Swap transaction sent: ${tx.hash}`);
+      return tx;
+    } catch (error) {
+      console.error("Error sending swap transaction:", error);
+      // Extract more detailed error information if available
+      const errorMessage = error.error?.message || error.reason || error.message || "Unknown error";
+      throw new Error(`Swap transaction failed: ${errorMessage}`);
+    }
+  } catch (error) {
+    console.error('Error in runSwap:', error);
+    throw error;
   }
-
-  await tokenContract.connect(signer).approve(
-    V3_SWAP_ROUTER_ADDRESS,
-    approvalAmount
-  );
-
-  return signer.sendTransaction(transaction);
 }; 

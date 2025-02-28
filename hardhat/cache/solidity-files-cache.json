@@ -1,7 +1,7 @@
 {
   "_format": "hh-sol-cache-2",
   "files": {
-    "/Users/zeref/workdir/katon/hardhat/contracts/Tether.sol": {
+    "/Users/zeref/workdir/fireball/hardhat/contracts/Tether.sol": {
       "lastModificationDate": 1740214500819,
       "contentHash": "3d8a6d3be96eec2a9fde5849af37abee",
       "sourceName": "contracts/Tether.sol",
@@ -42,7 +42,7 @@
         "Tether"
       ]
     },
-    "/Users/zeref/workdir/katon/hardhat/node_modules/@openzeppelin/contracts/access/Ownable.sol": {
+    "/Users/zeref/workdir/fireball/hardhat/node_modules/@openzeppelin/contracts/access/Ownable.sol": {
       "lastModificationDate": 1740214231827,
       "contentHash": "5a20b2cad87ddb61c7a3a6af21289e28",
       "sourceName": "@openzeppelin/contracts/access/Ownable.sol",
@@ -82,7 +82,7 @@
         "Ownable"
       ]
     },
-    "/Users/zeref/workdir/katon/hardhat/node_modules/@openzeppelin/contracts/token/ERC20/ERC20.sol": {
+    "/Users/zeref/workdir/fireball/hardhat/node_modules/@openzeppelin/contracts/token/ERC20/ERC20.sol": {
       "lastModificationDate": 1740214231685,
       "contentHash": "3ae5166c6827a9cf1a7a462d1632b464",
       "sourceName": "@openzeppelin/contracts/token/ERC20/ERC20.sol",
@@ -124,7 +124,7 @@
         "ERC20"
       ]
     },
-    "/Users/zeref/workdir/katon/hardhat/node_modules/@openzeppelin/contracts/utils/Context.sol": {
+    "/Users/zeref/workdir/fireball/hardhat/node_modules/@openzeppelin/contracts/utils/Context.sol": {
       "lastModificationDate": 1740214231633,
       "contentHash": "f07feb4a44b1a4872370da5aa70e8e46",
       "sourceName": "@openzeppelin/contracts/utils/Context.sol",
@@ -162,7 +162,7 @@
         "Context"
       ]
     },
-    "/Users/zeref/workdir/katon/hardhat/node_modules/@openzeppelin/contracts/token/ERC20/IERC20.sol": {
+    "/Users/zeref/workdir/fireball/hardhat/node_modules/@openzeppelin/contracts/token/ERC20/IERC20.sol": {
       "lastModificationDate": 1740214231784,
       "contentHash": "df36f7051335cd1e748b1b6463b7fdd3",
       "sourceName": "@openzeppelin/contracts/token/ERC20/IERC20.sol",
@@ -200,7 +200,7 @@
         "IERC20"
       ]
     },
-    "/Users/zeref/workdir/katon/hardhat/node_modules/@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol": {
+    "/Users/zeref/workdir/fireball/hardhat/node_modules/@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol": {
       "lastModificationDate": 1740214231785,
       "contentHash": "909ab67fc5c25033fe6cd364f8c056f9",
       "sourceName": "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol",
@@ -240,7 +240,7 @@
         "IERC20Metadata"
       ]
     },
-    "/Users/zeref/workdir/katon/hardhat/contracts/WrappedBitcoin.sol": {
+    "/Users/zeref/workdir/fireball/hardhat/contracts/WrappedBitcoin.sol": {
       "lastModificationDate": 1740214624101,
       "contentHash": "ae215500eb5179ea4a3a81e2f4ed485d",
       "sourceName": "contracts/WrappedBitcoin.sol",
@@ -281,7 +281,7 @@
         "WrappedBitcoin"
       ]
     },
-    "/Users/zeref/workdir/katon/hardhat/contracts/UsdCoin.sol": {
+    "/Users/zeref/workdir/fireball/hardhat/contracts/UsdCoin.sol": {
       "lastModificationDate": 1740214512151,
       "contentHash": "2c1b4ba355d5be0decbb36086548f7a5",
       "sourceName": "contracts/UsdCoin.sol",

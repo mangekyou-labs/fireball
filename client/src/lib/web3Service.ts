@@ -1,7 +1,23 @@
 import { ethers } from 'ethers';
-import { toast } from '@/hooks/use-toast';
 import { getPrice, runSwap, WETH, WBTC, USDC, USDT } from './uniswap/AlphaRouterService';
-import { Token } from '@uniswap/sdk-core';
+import { apiRequest } from "./api";
+import type { Token as SDKToken } from "@uniswap/sdk-core";
+
+// Define environment variables interface for TypeScript
+declare global {
+  interface ImportMeta {
+    env: {
+      VITE_INFURA_ID?: string;
+      VITE_WETH_ADDRESS: string;
+      VITE_WBTC_ADDRESS: string;
+      VITE_USDC_ADDRESS: string;
+      VITE_USDT_ADDRESS: string;
+      VITE_CHAIN_ID: string;
+      VITE_ROUTER_ADDRESS: string;
+      VITE_RPC_URL: string;
+    }
+  }
+}
 
 // Add window.ethereum type declaration
 declare global {
@@ -156,8 +172,8 @@ export class Web3Service {
           const outAmount = amountIn.mul(98).div(100); // 2% slippage
           
           // Find the appropriate token definitions for formatting
-          let inputToken: Token;
-          let outputToken: Token;
+          let inputToken: SDKToken;
+          let outputToken: SDKToken;
           
           switch (tokenIn.toLowerCase()) {
             case import.meta.env.VITE_WETH_ADDRESS.toLowerCase():
@@ -220,8 +236,8 @@ export class Web3Service {
       }
 
       // Get the appropriate token objects
-      let inputToken: Token;
-      let outputToken: Token;
+      let inputToken: SDKToken;
+      let outputToken: SDKToken;
 
       switch (tokenIn.toLowerCase()) {
         case import.meta.env.VITE_WETH_ADDRESS.toLowerCase():
@@ -360,8 +376,39 @@ export class Web3Service {
     }
 
     try {
-      // Create a deterministic wallet for the user
-      // We use the user's address as entropy to generate a consistent wallet
+      // Try to load wallet from localStorage
+      const storedWalletData = localStorage.getItem(`aiWallet_${userAddress}`);
+      
+      if (storedWalletData) {
+        // Parse the stored wallet data
+        const walletData = JSON.parse(storedWalletData);
+        
+        if (walletData && walletData.encryptedKey) {
+          // Decrypt the private key
+          const privateKey = this.decryptWalletData(walletData.encryptedKey, userAddress);
+          
+          // Create wallet from private key
+          const wallet = new ethers.Wallet(privateKey);
+          
+          // Verify the address matches
+          if (wallet.address.toLowerCase() === aiWalletAddress.toLowerCase()) {
+            // Connect the wallet to the provider if available
+            if (this.provider) {
+              const connectedWallet = wallet.connect(this.provider);
+              this.aiWalletSigners.set(userAddress, connectedWallet);
+              return connectedWallet;
+            }
+            
+            this.aiWalletSigners.set(userAddress, wallet);
+            return wallet;
+          } else {
+            console.error("Wallet address mismatch, recreating wallet");
+          }
+        }
+      }
+      
+      // If we couldn't load from storage or address mismatch, create a new deterministic wallet
+      console.log("Creating a new deterministic wallet for the user");
       const aiWallet = ethers.Wallet.createRandom({
         extraEntropy: userAddress
       });
@@ -370,13 +417,23 @@ export class Web3Service {
       if (this.provider) {
         const connectedWallet = aiWallet.connect(this.provider);
         this.aiWalletSigners.set(userAddress, connectedWallet);
+        
+        // Save the new wallet
+        this.aiWallets.set(userAddress, connectedWallet.address);
+        const encryptedPrivateKey = this.encryptWalletData(aiWallet.privateKey, userAddress);
+        localStorage.setItem(`aiWallet_${userAddress}`, JSON.stringify({
+          address: aiWallet.address,
+          encryptedKey: encryptedPrivateKey
+        }));
+        this.saveAIWalletsToStorage();
+        
         return connectedWallet;
       }
 
       this.aiWalletSigners.set(userAddress, aiWallet);
       return aiWallet;
     } catch (error) {
-      console.error("Failed to create AI wallet signer:", error);
+      console.error("Failed to get or create AI wallet signer:", error);
       return null;
     }
   }
@@ -398,7 +455,21 @@ export class Web3Service {
     // Store the wallet
     this.aiWallets.set(userAddress, aiWallet.address);
     this.aiWalletSigners.set(userAddress, aiWallet);
-    this.saveAIWalletsToStorage(); // Save to localStorage
+    
+    // Encrypt and store the private key
+    const encryptedPrivateKey = this.encryptWalletData(aiWallet.privateKey, userAddress);
+    
+    // Save to localStorage with encryption
+    try {
+      localStorage.setItem(`aiWallet_${userAddress}`, JSON.stringify({
+        address: aiWallet.address,
+        encryptedKey: encryptedPrivateKey
+      }));
+    } catch (error) {
+      console.error("Failed to save encrypted wallet to storage:", error);
+    }
+    
+    this.saveAIWalletsToStorage(); // Save address mapping to localStorage
     console.log("Created new AI wallet for user:", userAddress, aiWallet.address);
 
     // If in test mode, fund the wallet with some test ETH
@@ -441,7 +512,7 @@ export class Web3Service {
     
     // Save the wallet address for use with the AI
     this.signer = wallet;
-    this.saveAIWallet(wallet.address);
+    this.saveAIWalletsToStorage(); // Save to localStorage
     
     return wallet.address;
   }
@@ -458,7 +529,7 @@ export class Web3Service {
       console.log(`Executing AI swap: ${tokenIn} -> ${tokenOut}, amount: ${amountIn.toString()}, slippage: ${slippage}%`);
       
       // Get the AI wallet signer
-      const aiSigner = await this.getAIWalletSigner(userAddress);
+      let aiSigner = await this.getAIWalletSigner(userAddress);
       if (!aiSigner) {
         return {
           success: false,
@@ -467,8 +538,7 @@ export class Web3Service {
       }
       
       if (this.isTestMode) {
-        // Test mode logic same as executeSwap
-        // ... existing test mode code ...
+        // Test mode simulation code (unchanged)
         console.log("Running in test mode with AI wallet, using simulated swaps");
         try {
           // Safety check for extremely small amounts that could cause errors
@@ -484,8 +554,8 @@ export class Web3Service {
           const outAmount = amountIn.mul(98).div(100); // 2% slippage
           
           // Find the appropriate token definitions for formatting
-          let inputToken: Token;
-          let outputToken: Token;
+          let inputToken: SDKToken;
+          let outputToken: SDKToken;
           
           switch (tokenIn.toLowerCase()) {
             case import.meta.env.VITE_WETH_ADDRESS.toLowerCase():
@@ -544,18 +614,90 @@ export class Web3Service {
       }
 
       // For real transactions, implement the swap using the AI wallet signer
-      // This would be similar to the existing swap logic but using aiSigner instead of this.signer
+      // Get the appropriate token objects
+      let inputToken: SDKToken;
+      let outputToken: SDKToken;
+
+      switch (tokenIn.toLowerCase()) {
+        case import.meta.env.VITE_WETH_ADDRESS.toLowerCase():
+          inputToken = WETH;
+          break;
+        case import.meta.env.VITE_WBTC_ADDRESS.toLowerCase():
+          inputToken = WBTC;
+          break;
+        case import.meta.env.VITE_USDC_ADDRESS.toLowerCase():
+          inputToken = USDC;
+          break;
+        case import.meta.env.VITE_USDT_ADDRESS.toLowerCase():
+          inputToken = USDT;
+          break;
+        default:
+          throw new Error("Unsupported input token");
+      }
+
+      switch (tokenOut.toLowerCase()) {
+        case import.meta.env.VITE_WETH_ADDRESS.toLowerCase():
+          outputToken = WETH;
+          break;
+        case import.meta.env.VITE_WBTC_ADDRESS.toLowerCase():
+          outputToken = WBTC;
+          break;
+        case import.meta.env.VITE_USDC_ADDRESS.toLowerCase():
+          outputToken = USDC;
+          break;
+        case import.meta.env.VITE_USDT_ADDRESS.toLowerCase():
+          outputToken = USDT;
+          break;
+        default:
+          throw new Error("Unsupported output token");
+      }
+
+      // Make sure aiSigner is connected to provider
+      if (!aiSigner.provider && this.provider) {
+        console.log("Connecting AI wallet to provider");
+        aiSigner = aiSigner.connect(this.provider);
+      }
+
+      const aiWalletAddress = await aiSigner.getAddress();
+      console.log(`AI wallet address: ${aiWalletAddress}`);
+
+      // Get the swap transaction
+      const deadline = Math.floor(Date.now() / 1000) + 300; // 5 minutes
+      console.log(`Getting price for AI swap, input amount: ${ethers.utils.formatUnits(amountIn, inputToken.decimals)} ${inputToken.symbol}`);
       
-      // Placeholder for now, this would need actual implementation for real swaps
-      console.log("Real AI wallet swap with:", aiSigner.address);
+      // Convert BigNumber to string for getPrice function
+      const inputAmountString = ethers.utils.formatUnits(amountIn, inputToken.decimals);
       
-      // Create a fake transaction hash for now
-      const txHash = ethers.utils.hexlify(ethers.utils.randomBytes(32));
+      const [transaction, outputAmount, ratio] = await getPrice(
+        inputAmountString,
+        inputToken,
+        outputToken,
+        slippage,
+        deadline,
+        aiWalletAddress
+      );
+
+      if (!transaction) {
+        throw new Error("Failed to get swap transaction for AI wallet");
+      }
+
+      // Execute the swap
+      console.log(`AI executing swap: ${inputToken.symbol} -> ${outputToken.symbol}`);
+      console.log(`Input amount: ${ethers.utils.formatUnits(amountIn, inputToken.decimals)} ${inputToken.symbol}`);
+      console.log(`Expected output: ${outputAmount} ${outputToken.symbol} (ratio: ${ratio})`);
+      
+      // Run the actual on-chain swap
+      const tx = await runSwap(transaction, aiSigner, inputToken);
+      console.log(`AI swap transaction sent: ${tx.hash}`);
+      
+      // Wait for transaction to be mined
+      const receipt = await tx.wait();
+      console.log(`AI swap transaction confirmed in block ${receipt.blockNumber}`);
       
       return {
         success: true,
-        txHash,
-        outputAmount: "1.0" // Placeholder
+        txHash: tx.hash,
+        outputAmount: outputAmount
       };
     } catch (error) {
       console.error("AI swap execution error:", error);
@@ -563,6 +705,49 @@ export class Web3Service {
         success: false,
         error: error instanceof Error ? error.message : "Unknown error executing AI swap"
       };
+    }
+  }
+  
+  // Add a helper method to securely store wallet private keys with encryption
+  private encryptWalletData(privateKey: string, userAddress: string): string {
+    try {
+      // Use a salt based on the user's address (or could use a constant server-side salt)
+      const salt = ethers.utils.id(userAddress + "FIREBALL_SALT").slice(0, 16);
+      
+      // Simple encryption for demo purposes
+      // In production, use a proper encryption library with secure parameters
+      let encrypted = '';
+      for (let i = 0; i < privateKey.length; i++) {
+        encrypted += String.fromCharCode(privateKey.charCodeAt(i) ^ salt.charCodeAt(i % salt.length));
+      }
+      
+      // Convert to base64 for storage
+      return Buffer.from(encrypted).toString('base64');
+    } catch (error) {
+      console.error("Error encrypting wallet data:", error);
+      throw new Error("Failed to secure wallet data");
+    }
+  }
+  
+  // Helper method to decrypt wallet private keys
+  private decryptWalletData(encryptedData: string, userAddress: string): string {
+    try {
+      // Use the same salt as in encryption
+      const salt = ethers.utils.id(userAddress + "FIREBALL_SALT").slice(0, 16);
+      
+      // Decode from base64
+      const encrypted = Buffer.from(encryptedData, 'base64').toString();
+      
+      // Decrypt
+      let privateKey = '';
+      for (let i = 0; i < encrypted.length; i++) {
+        privateKey += String.fromCharCode(encrypted.charCodeAt(i) ^ salt.charCodeAt(i % salt.length));
+      }
+      
+      return privateKey;
+    } catch (error) {
+      console.error("Error decrypting wallet data:", error);
+      throw new Error("Failed to access wallet data");
     }
   }
 }

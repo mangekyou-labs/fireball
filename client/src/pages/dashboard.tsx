@@ -27,8 +27,7 @@ export default function Dashboard() {
         <Tabs defaultValue="overview" className="space-y-6">
           <TabsList>
             <TabsTrigger value="overview">Overview</TabsTrigger>
-            <TabsTrigger value="ai">AI Auto-Trading</TabsTrigger>
-            <TabsTrigger value="positions">Your Positions</TabsTrigger>
+            <TabsTrigger value="ai">AI Trading</TabsTrigger>
           </TabsList>
 
           <TabsContent value="overview">

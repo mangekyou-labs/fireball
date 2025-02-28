@@ -380,14 +380,30 @@ export class PoolService {
   private async approveToken(token: Token, amount: string): Promise<void> {
     if (!this.signer) throw new Error('Wallet not connected');
 
+    const walletAddress = await this.signer.getAddress();
     const tokenContract = new ethers.Contract(
       token.address,
-      ['function approve(address spender, uint256 amount) external returns (bool)'],
+      [
+        'function approve(address spender, uint256 amount) external returns (bool)',
+        'function allowance(address owner, address spender) external view returns (uint256)'
+      ],
       this.signer
     );
 
-    const tx = await tokenContract.approve(NONFUNGIBLE_POSITION_MANAGER_ADDRESS, amount);
-    await tx.wait();
+    // Check current allowance
+    const currentAllowance = await tokenContract.allowance(
+      walletAddress, 
+      NONFUNGIBLE_POSITION_MANAGER_ADDRESS
+    );
+    
+    // Only approve if current allowance is less than needed amount
+    if (ethers.BigNumber.from(currentAllowance).lt(ethers.BigNumber.from(amount))) {
+      console.log(`Approving ${token.symbol} for amount ${amount}`);
+      const tx = await tokenContract.approve(NONFUNGIBLE_POSITION_MANAGER_ADDRESS, amount);
+      await tx.wait();
+    } else {
+      console.log(`Sufficient allowance exists for ${token.symbol}: ${currentAllowance.toString()}`);
+    }
   }
 
   private async getPosition(positionId: number): Promise<Position> {

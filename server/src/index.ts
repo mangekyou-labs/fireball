@@ -4,6 +4,8 @@ import path from 'path';
 
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes.js";
+import { storage } from "./storage.js";
+import { walletActivityLogs } from "@shared/schema.js";
 
 // Helper function for logging
 function log(message: string, source = "express") {
@@ -98,6 +100,61 @@ app.use((req, res, next) => {
   });
 
   next();
+});
+
+// Add API endpoints for logs
+app.post("/api/logs", async (req: Request, res: Response) => {
+  try {
+    const { sessionId, activityType, details, isManualIntervention } = req.body;
+    
+    if (!sessionId) {
+      return res.status(400).json({ error: "Session ID is required" });
+    }
+    
+    const log = await storage.createWalletActivityLog({
+      sessionId,
+      activityType: activityType || "UNKNOWN",
+      details: details || {},
+      isManualIntervention: isManualIntervention || false
+    });
+    
+    res.status(201).json(log);
+  } catch (error) {
+    console.error("Error creating log:", error);
+    res.status(500).json({ error: "Failed to create log" });
+  }
+});
+
+app.get("/api/logs/:sessionId", async (req: Request, res: Response) => {
+  try {
+    const sessionId = parseInt(req.params.sessionId);
+    
+    if (isNaN(sessionId)) {
+      return res.status(400).json({ error: "Invalid session ID" });
+    }
+    
+    const logs = await storage.getWalletActivityLogs(sessionId);
+    res.json(logs);
+  } catch (error) {
+    console.error("Error fetching logs:", error);
+    res.status(500).json({ error: "Failed to fetch logs" });
+  }
+});
+
+app.delete("/api/logs/clear/:sessionId", async (req: Request, res: Response) => {
+  try {
+    const sessionId = parseInt(req.params.sessionId);
+    
+    if (isNaN(sessionId)) {
+      return res.status(400).json({ error: "Invalid session ID" });
+    }
+    
+    await storage.clearWalletActivityLogs(sessionId);
+    res.json({ success: true });
+  } catch (error) {
+    console.error("Error clearing logs:", error);
+    res.status(500).json({ error: "Failed to clear logs" });
+  }
 });
 
 (async () => {

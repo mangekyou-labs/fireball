@@ -16,6 +16,21 @@ interface MemeStrategyConfig {
   investmentPercentage: number;
 }
 
+// Add the ArbitrageStrategyConfig interface with the other strategy config interfaces
+interface ArbitrageStrategyConfig {
+  minPriceDiscrepancy: number;
+  maxSlippage: number;
+  gasConsideration: boolean;
+  refreshInterval: number;
+  maxPools: number;
+  preferredDEXes: string[];
+  autoExecute: boolean;
+  maxTradeSize: number;
+  minProfitThreshold: number;
+  useLiquidityFiltering: boolean;
+  liquidityThreshold: number;
+}
+
 export interface IStorage {
   // Token operations
   getTokens(): Promise<Token[]>;
@@ -41,6 +56,7 @@ export interface IStorage {
   // Wallet activity log operations
   getWalletActivityLogs(sessionId: number): Promise<WalletActivityLog[]>;
   createWalletActivityLog(log: InsertWalletActivityLog): Promise<WalletActivityLog>;
+  clearWalletActivityLogs(sessionId: number): Promise<void>;
 
   // New operations
   updateStrategyRiskLevels(): Promise<void>;
@@ -48,9 +64,37 @@ export interface IStorage {
   getStrategyConfig?<T>(strategyId: number, configType: string): Promise<T | null>;
   getMemeStrategy?(): Promise<{ strategy: any, config: MemeStrategyConfig | null }>;
   saveMemeStrategyConfig?(config: MemeStrategyConfig): Promise<void>;
+  getArbitrageStrategy(): Promise<{ strategy: any, config: ArbitrageStrategyConfig | null }>;
+  saveArbitrageStrategyConfig(config: ArbitrageStrategyConfig): Promise<void>;
+
+  // New methods
+  getAIWallets(userAddress: string): Promise<AIWallet[]>;
+  createAIWallet(wallet: InsertAIWallet): Promise<AIWallet>;
 }
 
-export class DatabaseStorage implements IStorage {
+export interface DatabaseStorage extends IStorage {
+  getAIWallets(userAddress: string): Promise<AIWallet[]>;
+  createAIWallet(wallet: InsertAIWallet): Promise<AIWallet>;
+}
+
+// Define the AIWallet interface
+export interface AIWallet {
+  id: number;
+  userAddress: string;
+  aiWalletAddress: string;
+  allocatedAmount: string;
+  createdAt: Date;
+  isActive: boolean;
+}
+
+export interface InsertAIWallet {
+  userAddress: string;
+  aiWalletAddress: string;
+  allocatedAmount: string;
+  isActive: boolean;
+}
+
+export class DatabaseStorage implements DatabaseStorage {
   async getTokens(): Promise<Token[]> {
     return db.select().from(tokens);
   }
@@ -163,11 +207,13 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createWalletActivityLog(log: InsertWalletActivityLog): Promise<WalletActivityLog> {
-    const [newLog] = await db
-      .insert(walletActivityLogs)
-      .values(log)
-      .returning();
-    return newLog;
+    const result = await db.insert(walletActivityLogs).values(log).returning();
+    return result[0];
+  }
+
+  // Add method to clear wallet activity logs for a session
+  async clearWalletActivityLogs(sessionId: number): Promise<void> {
+    await db.delete(walletActivityLogs).where(eq(walletActivityLogs.sessionId, sessionId));
   }
 
   // Initialize base data if not exists
@@ -230,6 +276,17 @@ export class DatabaseStorage implements IStorage {
         description: "HIGH RISK: Enter positions when volume spikes with price movement. Best with instant trades to capture sudden breakouts. Aggressive strategy for volatile markets.",
         strategyType: "technical",
         hasLimitOrders: false
+      });
+      
+      // Add the missing Memecoin Bracket Orders strategy
+      await this.createStrategy({
+        name: "Memecoin Bracket Orders",
+        rsiThreshold: "80",
+        enabled: false,
+        riskLevel: "high",
+        description: "HIGH RISK: Automatically detects price dips in memecoins and places bracket orders with take profit and stop loss. Uses AI to analyze price patterns and social sentiment before entry.",
+        strategyType: "social",
+        hasLimitOrders: true
       });
       
       console.log("Strategies initialized");
@@ -399,6 +456,139 @@ export class DatabaseStorage implements IStorage {
       console.error('Error saving memecoin strategy config:', error);
       throw error;
     }
+  }
+
+  // Add this method along with getMemeStrategy method
+  async getArbitrageStrategy(): Promise<{ strategy: any, config: ArbitrageStrategyConfig | null }> {
+    try {
+      const strategies = await db.select()
+        .from(schema.strategies)
+        .where(eq(schema.strategies.name, "DEX Pool Arbitrage"));
+      
+      if (strategies.length === 0) {
+        return { 
+          strategy: null, 
+          config: null 
+        };
+      }
+      
+      const strategy = strategies[0];
+      const config = await this.getStrategyConfig<ArbitrageStrategyConfig>(
+        strategy.id, 
+        'arbitrage'
+      );
+      
+      return {
+        strategy,
+        config: config || {
+          minPriceDiscrepancy: 0.5,
+          maxSlippage: 0.5,
+          gasConsideration: true,
+          refreshInterval: 30,
+          maxPools: 5,
+          preferredDEXes: ['Uniswap V3'],
+          autoExecute: false,
+          maxTradeSize: 10,
+          minProfitThreshold: 0.2,
+          useLiquidityFiltering: true,
+          liquidityThreshold: 10000
+        }
+      };
+    } catch (error) {
+      console.error('Error getting arbitrage strategy:', error);
+      throw error;
+    }
+  }
+  
+  // Add a new method to save strategy configurations
+  async saveArbitrageStrategyConfig(config: ArbitrageStrategyConfig): Promise<void> {
+    try {
+      // Make sure the arbitrage strategy exists first
+      let strategy = await this.ensureArbitrageStrategyExists();
+      
+      // Save config to strategy_configs table
+      await this.saveStrategyConfig(strategy.id, 'arbitrage', config);
+    } catch (error) {
+      console.error('Error saving arbitrage strategy config:', error);
+      throw error;
+    }
+  }
+  
+  // Helper method to ensure the strategy exists
+  private async ensureArbitrageStrategyExists(): Promise<Strategy> {
+    // Check if strategy already exists
+    const existingStrategies = await db.select()
+      .from(schema.strategies)
+      .where(eq(schema.strategies.name, "DEX Pool Arbitrage"));
+    
+    if (existingStrategies.length > 0) {
+      return existingStrategies[0];
+    }
+    
+    // Strategy doesn't exist, create it
+    const [newStrategy] = await db.insert(schema.strategies)
+      .values({
+        name: "DEX Pool Arbitrage",
+        rsiThreshold: "30/70",
+        enabled: false,
+        riskLevel: "medium",
+        description: "Analyzes multiple DEX pools to find arbitrage opportunities for token pairs",
+        strategyType: "arbitrage",
+        hasLimitOrders: false
+      })
+      .returning();
+    
+    return newStrategy;
+  }
+
+  async getAIWallets(userAddress: string): Promise<AIWallet[]> {
+    // Get all trading sessions for the user
+    const sessions = await this.getTradingSessions(userAddress);
+    
+    // Create a map to store the most recent session for each AI wallet
+    const walletsMap = new Map();
+    
+    sessions.forEach(session => {
+      const existingWallet = walletsMap.get(session.aiWalletAddress);
+      
+      // If this wallet doesn't exist in our map yet, or if this session is newer than the one we have
+      if (!existingWallet || 
+          (session.createdAt && existingWallet.createdAt && 
+           new Date(session.createdAt).getTime() > new Date(existingWallet.createdAt).getTime())) {
+        walletsMap.set(session.aiWalletAddress, {
+          id: session.id,
+          userAddress: session.userAddress,
+          aiWalletAddress: session.aiWalletAddress,
+          allocatedAmount: session.allocatedAmount,
+          createdAt: session.createdAt,
+          isActive: session.isActive
+        });
+      }
+    });
+    
+    // Convert map to array and sort by creation date (newest first)
+    return Array.from(walletsMap.values())
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }
+
+  async createAIWallet(wallet: InsertAIWallet): Promise<AIWallet> {
+    // Create a new trading session for the AI wallet
+    const newSession = await this.createTradingSession({
+      userAddress: wallet.userAddress,
+      aiWalletAddress: wallet.aiWalletAddress,
+      allocatedAmount: wallet.allocatedAmount,
+      isActive: wallet.isActive
+    });
+    
+    // Return the session as an AI wallet
+    return {
+      id: newSession.id,
+      userAddress: newSession.userAddress,
+      aiWalletAddress: newSession.aiWalletAddress,
+      allocatedAmount: newSession.allocatedAmount,
+      createdAt: newSession.createdAt,
+      isActive: newSession.isActive
+    };
   }
 }
 

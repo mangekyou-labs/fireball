@@ -1,12 +1,15 @@
 import { useState, useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Wallet, RefreshCw } from "lucide-react";
+import { Wallet, RefreshCw, Plus } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { web3Service } from "@/lib/web3Service";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 interface AIWallet {
   id: number;
@@ -24,8 +27,11 @@ interface AIWalletSelectorProps {
 
 export function AIWalletSelector({ userAddress, onWalletSelect }: AIWalletSelectorProps) {
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const [selectedWalletId, setSelectedWalletId] = useState<string>("");
   const [errorDetails, setErrorDetails] = useState<string | null>(null);
+  const [showCreateDialog, setShowCreateDialog] = useState(false);
+  const [newWalletAmount, setNewWalletAmount] = useState<string>("");
 
   // Query for AI wallets associated with the user
   const { data: aiWallets, isLoading, error, refetch } = useQuery({
@@ -101,6 +107,69 @@ export function AIWalletSelector({ userAddress, onWalletSelect }: AIWalletSelect
     refetch();
   };
 
+  // Add mutation for creating a new AI wallet
+  const createWalletMutation = useMutation({
+    mutationFn: async (amount: number) => {
+      if (!userAddress) {
+        throw new Error("User address is required to create an AI wallet");
+      }
+      
+      try {
+        // Create a new AI wallet
+        const aiWalletAddress = await web3Service.getOrCreateAIWallet(userAddress);
+        
+        // Register the wallet with the server
+        const response = await apiRequest('/api/wallets', {
+          method: 'POST',
+          body: {
+            userAddress,
+            aiWalletAddress,
+            allocatedAmount: amount.toString()
+          }
+        });
+        
+        return response;
+      } catch (error) {
+        console.error("Error creating AI wallet:", error);
+        throw error;
+      }
+    },
+    onSuccess: () => {
+      toast({
+        title: "AI Wallet Created",
+        description: `Successfully created a new AI wallet with ${newWalletAmount} USDC`,
+      });
+      
+      // Close the dialog and reset the form
+      setShowCreateDialog(false);
+      setNewWalletAmount("");
+      
+      // Refresh the wallets list
+      refetch();
+    },
+    onError: (error) => {
+      toast({
+        title: "Error Creating Wallet",
+        description: error instanceof Error ? error.message : "Unknown error occurred",
+        variant: "destructive"
+      });
+    }
+  });
+
+  const handleCreateWallet = () => {
+    const amount = parseFloat(newWalletAmount);
+    if (isNaN(amount) || amount <= 0) {
+      toast({
+        title: "Invalid Amount",
+        description: "Please enter a valid amount greater than 0",
+        variant: "destructive"
+      });
+      return;
+    }
+    
+    createWalletMutation.mutate(amount);
+  };
+
   if (isLoading) {
     return (
       <Card className="mb-4">
@@ -146,9 +215,18 @@ export function AIWalletSelector({ userAddress, onWalletSelect }: AIWalletSelect
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="text-sm text-muted-foreground">
-            No AI wallets found. Create one by allocating funds.
+          <div className="text-sm text-muted-foreground mb-4">
+            No AI wallets found. Create one to start trading.
           </div>
+          <Button 
+            variant="outline" 
+            size="sm" 
+            className="w-full" 
+            onClick={() => setShowCreateDialog(true)}
+          >
+            <Plus className="h-4 w-4 mr-2" />
+            Create New AI Wallet
+          </Button>
         </CardContent>
       </Card>
     );
@@ -193,11 +271,61 @@ export function AIWalletSelector({ userAddress, onWalletSelect }: AIWalletSelect
             </SelectContent>
           </Select>
           
-          <div className="text-xs text-muted-foreground">
-            Select a previously created AI wallet to continue trading
+          <div className="flex justify-between items-center mt-4">
+            <div className="text-xs text-muted-foreground">
+              Select a previously created AI wallet to continue trading
+            </div>
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={() => setShowCreateDialog(true)}
+            >
+              <Plus className="h-3 w-3 mr-1" />
+              New Wallet
+            </Button>
           </div>
         </div>
       </CardContent>
+
+      {/* Create New Wallet Dialog */}
+      <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Create New AI Wallet</DialogTitle>
+            <DialogDescription>
+              Create a new AI wallet and allocate USDC for trading
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="amount">USDC Amount</Label>
+              <div className="relative">
+                <Input
+                  id="amount"
+                  type="number"
+                  placeholder="Enter amount to allocate"
+                  value={newWalletAmount}
+                  onChange={(e) => setNewWalletAmount(e.target.value)}
+                  step="0.01"
+                  min="0"
+                  className="pr-16"
+                />
+                <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
+                  <span className="text-gray-500">USDC</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowCreateDialog(false)}>Cancel</Button>
+            <Button onClick={handleCreateWallet} disabled={createWalletMutation.isPending}>
+              {createWalletMutation.isPending ? "Creating..." : "Create Wallet"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 } 

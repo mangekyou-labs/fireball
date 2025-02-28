@@ -26,7 +26,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { strategyService, MemeStrategyConfig } from "@/lib/strategyService";
 import { USDC, WBTC, WETH, USDT } from "@/lib/uniswap/AlphaRouterService"; // Import token definitions
 import { ArbitrageStrategyModal, ArbitrageStrategyConfig } from '@/components/ArbitrageStrategyModal';
-import { AIRecommendationAnalyst } from "./AIRecommendationAnalyst";
 
 // Use environment variables for token addresses
 const USDC_ADDRESS = import.meta.env.VITE_USDC_ADDRESS;
@@ -446,22 +445,19 @@ export function AIStrategyPanel() {
   const [arbitrageStrategyConfig, setArbitrageStrategyConfig] = useState<ArbitrageStrategyConfig | null>(null);
 
   // Query for strategies
-  const { data: strategiesData } = useQuery({
+  const { data: strategies = [] } = useQuery({
     queryKey: ['strategies'],
     queryFn: async () => {
       try {
-        const data = await apiRequest<{strategies: Strategy[]}>('/api/strategies');
+        const data = await apiRequest<Strategy[]>('/api/strategies');
         console.log("Fetched strategies:", data);
-        return data;
+        return data || [];
       } catch (error) {
         console.error("Error fetching strategies:", error);
-        return { strategies: [] };
+        return [];
       }
     }
   });
-  
-  // Extract strategies array from the response
-  const strategies = strategiesData?.strategies || [];
 
   // Reset strategy enablement when risk level changes
   useEffect(() => {
@@ -474,23 +470,15 @@ export function AIStrategyPanel() {
     
     // Disable strategies that don't match the current risk level
     if (riskLevel === 'low') {
-      // Only update if the state is different
-      if (isMemeStrategyEnabled) {
-        setIsMemeStrategyEnabled(false);
-      }
+      setIsMemeStrategyEnabled(false);
     } else if (riskLevel === 'medium') {
-      if (isMemeStrategyEnabled) {
-        setIsMemeStrategyEnabled(false);
-      }
+      setIsMemeStrategyEnabled(false);
     }
     
     // Reset backend strategies based on risk level
     // Only run this logic when strategies are available
     if (safeStrategies.length > 0) {
       let foundEnabledStrategy = false;
-      
-      // Create a temporary array to track which strategies need to be toggled
-      const strategiesToToggle: Array<{id: number, shouldBeEnabled: boolean}> = [];
       
       safeStrategies.forEach(strategy => {
         const strategyRiskLevel = strategy.riskLevel || 'medium';
@@ -506,319 +494,54 @@ export function AIStrategyPanel() {
         
         // If strategy is not visible at current risk level, disable it
         if (!shouldBeVisible && strategy.enabled) {
-          strategiesToToggle.push({id: strategy.id, shouldBeEnabled: false});
+          toggleStrategy(strategy.id, false);
         } else if (shouldBeVisible && strategy.enabled) {
           // If we already found an enabled strategy, disable this one
           if (foundEnabledStrategy) {
-            strategiesToToggle.push({id: strategy.id, shouldBeEnabled: false});
+            toggleStrategy(strategy.id, false);
           } else {
             foundEnabledStrategy = true;
           }
         }
       });
-      
-      // Now execute toggles outside the forEach to prevent nested state updates
-      // Use a local variable to prevent useEffect dependency issues
-      const apiRequests = strategiesToToggle.map(async ({id, shouldBeEnabled}) => {
-        try {
-          return await apiRequest(`/api/strategies/${id}/toggle`, {
-            method: 'GET',
-            params: { enabled: shouldBeEnabled }
-          });
-        } catch (error) {
-          console.error(`Error toggling strategy ${id}:`, error);
-          return null;
-        }
-      });
-      
-      // Use Promise.all to wait for all toggles and only invalidate once
-      if (apiRequests.length > 0) {
-        Promise.all(apiRequests).then(() => {
-          queryClient.invalidateQueries(['strategies']);
-        }).catch(error => {
-          console.error("Error in strategy toggle batch:", error);
-        });
-      }
     }
     
     // Log the risk level change
     addLog(`Risk level changed to ${riskLevel}`, 'info');
-  }, [riskLevel, strategies, isMemeStrategyEnabled, queryClient]);
+  }, [riskLevel, strategies]);
 
-  const addLog = async (message: string, type: 'info' | 'success' | 'error' = 'info') => {
-    // Add to local state
-    const newLog = { 
+  const addLog = (message: string, type: 'info' | 'success' | 'error' = 'info') => {
+    setLogs(prev => [...prev, { 
       message, 
       type, 
       timestamp: new Date().toLocaleTimeString()
-    };
-    
-    setLogs(prev => [...prev, newLog]);
-    
-    // Store in database if we have an active session
-    if (sessionId) {
-      try {
-        await apiRequest('/api/logs', {
-          method: 'POST',
-          body: {
-            sessionId,
-            activityType: type === 'error' ? 'ERROR' : type === 'success' ? 'SUCCESS' : 'INFO',
-            details: {
-              message,
-              timestamp: new Date().toISOString()
-            },
-            isManualIntervention: false
-          }
-        });
-      } catch (error) {
-        console.error('Error storing log in database:', error);
-      }
-    }
+    }]);
   };
 
-  // Update the function to clear logs from both state and database
-  const clearLogs = async () => {
+  // Add a function to clear logs
+  const clearLogs = () => {
     setLogs([]);
-    
-    // Clear logs from database if we have an active session
-    if (sessionId) {
-      try {
-        await apiRequest(`/api/logs/clear/${sessionId}`, {
-          method: 'DELETE'
-        });
-        addLog("Log history cleared and reset in database", "info");
-      } catch (error) {
-        console.error('Error clearing logs from database:', error);
-        addLog("Log history cleared locally only", "info");
-      }
-    } else {
-      addLog("Log history cleared locally", "info");
-    }
-  };
-
-  // Add the missing handleAIWalletSelect function
-  const handleAIWalletSelect = (walletAddress: string, allocatedAmount: number) => {
-    // Only update if the value is actually different, to prevent unnecessary renders
-    if (selectedAIWallet !== walletAddress) {
-      // Reset trading state when switching wallets
-      setIsAutoTrading(false);
-      setSessionId(null);
-      
-      // Update selected wallet
-      setSelectedAIWallet(walletAddress);
-      setAllocatedFunds(allocatedAmount);
-      addLog(`Selected AI wallet: ${walletAddress} with ${allocatedAmount} USDC allocated`, 'info');
-      
-      // Invalidate trading session query to refresh data
-      queryClient.invalidateQueries(['trading-session', address, walletAddress] as InvalidateQueryFilters);
-    }
-  };
-
-  // Add missing functions
-  const connectWallet = async (useTestWallet: boolean = false) => {
-    try {
-      await connect(useTestWallet);
-      addLog(`Wallet ${useTestWallet ? '(test)' : ''} connected`, 'success');
-    } catch (error) {
-      console.error("Error connecting wallet:", error);
-      handleError(error);
-    }
-  };
-
-  const allocateFunds = async (amount: number) => {
-    if (!isConnected) {
-      showToast("Please connect your wallet first", "destructive");
-      return;
-    }
-
-    if (amount <= 0) {
-      showToast("Please enter a valid amount to allocate", "destructive");
-      return;
-    }
-
-    // Explicitly check if address is defined
-    if (!address) {
-      showToast("Wallet address is not available. Please reconnect your wallet.", "destructive");
-      addLog("Failed to allocate funds: wallet address is undefined", "error");
-      return;
-    }
-
-    try {
-      // If no AI wallet is selected, use a temporary wallet
-      let aiWalletToUse = selectedAIWallet;
-      
-      if (!aiWalletToUse) {
-        // Create a temporary wallet address (this is just a workaround)
-        // In production, you would want to properly create an AI wallet
-        aiWalletToUse = "0x" + Array(40).fill(0).map(() => Math.floor(Math.random() * 16).toString(16)).join('');
-        
-        addLog(`Using temporary AI wallet: ${aiWalletToUse}`, 'info');
-        setSelectedAIWallet(aiWalletToUse);
-      }
-      
-      // Log all values before sending the request
-      console.log("Allocation request parameters:", {
-        userAddress: address,
-        aiWalletAddress: aiWalletToUse,
-        allocatedAmount: amount.toString()
-      });
-      
-      addLog(`Allocating ${amount} USDC to AI trading...`, 'info');
-      
-      const response = await apiRequest<TradingResponse>('/api/trading/start', {
-        method: 'POST',
-        body: {  // Changed from 'data' to 'body' to match the API function
-          userAddress: address,
-          aiWalletAddress: aiWalletToUse,
-          allocatedAmount: amount.toString(),
-          tokenAddress: USDC_ADDRESS
-        }
-      });
-      
-      if (response.success) {
-        setSessionId(response.sessionId);
-        setAllocatedFunds(amount);
-        showToast(`Successfully allocated ${amount} USDC to AI trading`);
-        addLog(`Allocated ${amount} USDC to session #${response.sessionId}`, 'success');
-        
-        // Invalidate trading session query to refresh data
-        queryClient.invalidateQueries(['trading-session', address] as InvalidateQueryFilters);
-      } else {
-        throw new Error(response.message || "Failed to allocate funds");
-      }
-    } catch (error) {
-      console.error("Error allocating funds:", error);
-      handleError(error);
-    }
-  };
-
-  const toggleStrategy = async (strategyId: number, enabled: boolean) => {
-    try {
-      addLog(`${enabled ? 'Enabling' : 'Disabling'} strategy ID ${strategyId}...`, 'info');
-      
-      await apiRequest(`/api/strategies/${strategyId}/toggle`, {
-        method: 'GET',
-        params: { enabled }
-      });
-      
-      // Refresh strategies list
-      queryClient.invalidateQueries(['strategies']);
-      
-      showToast(`Strategy ${enabled ? 'enabled' : 'disabled'} successfully`);
-      addLog(`Strategy ID ${strategyId} ${enabled ? 'enabled' : 'disabled'}`, 'success');
-      
-      // If enabling this strategy, make sure to disable the memecoin strategy UI state manually
-      // instead of letting the useEffect handle it to prevent loops
-      if (enabled && isMemeStrategyEnabled) {
-        setIsMemeStrategyEnabled(false);
-      }
-      
-    } catch (error) {
-      console.error(`Error ${enabled ? 'enabling' : 'disabling'} strategy:`, error);
-      handleError(error);
-    }
-  };
-
-  const toggleAutoTrading = async (enabled: boolean) => {
-    if (!sessionId) {
-      showToast("Please allocate funds before starting trading", "destructive");
-      return;
-    }
-    
-    try {
-      addLog(`${enabled ? 'Starting' : 'Stopping'} auto-trading...`, 'info');
-      
-      if (enabled) {
-        // Start trading logic - keep existing implementation
-        await apiRequest(`/api/trading/start`, {
-          method: 'POST',
-          body: {
-            userAddress: address,
-            aiWalletAddress: selectedAIWallet,
-            allocatedAmount: allocatedFunds.toString(),
-            tokenAddress: USDC_ADDRESS
-          }
-        });
-      } else {
-        // Stop trading logic - use the correct endpoint
-        await apiRequest(`/api/trading/stop`, {
-          method: 'POST',
-          body: { sessionId }
-        });
-      }
-      
-      setIsAutoTrading(enabled);
-      
-      showToast(`Auto-trading ${enabled ? 'started' : 'stopped'} successfully`);
-      addLog(`Auto-trading ${enabled ? 'started' : 'stopped'}`, enabled ? 'success' : 'info');
-      
-      // Invalidate trading session query to refresh data
-      queryClient.invalidateQueries(['trading-session', address] as InvalidateQueryFilters);
-      
-    } catch (error) {
-      console.error(`Error ${enabled ? 'starting' : 'stopping'} auto-trading:`, error);
-      handleError(error);
-    }
-  };
-
-  const renderTradingLogs = () => {
-    return (
-      <div className="space-y-4 border-t pt-4">
-        <div className="flex justify-between items-center">
-          <h3 className="font-semibold">Trading Logs</h3>
-          <Button size="sm" variant="outline" onClick={clearLogs}>Clear</Button>
-        </div>
-        <div className="max-h-40 overflow-y-auto bg-muted rounded-md p-2">
-          {logs.length === 0 ? (
-            <div className="text-center text-sm text-muted-foreground py-6">
-              No logs yet
-            </div>
-          ) : (
-            <div className="space-y-1">
-              {logs.map((log, i) => (
-                <div key={i} className={`text-sm px-2 py-1 rounded ${
-                  log.type === 'success' ? 'bg-green-50 text-green-800' :
-                  log.type === 'error' ? 'bg-red-50 text-red-800' :
-                  'bg-gray-50 text-gray-800'
-                }`}>
-                  {log.timestamp && <span className="text-xs opacity-70 mr-1">[{log.timestamp}]</span>}
-                  {log.message}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-    );
+    addLog("Log history cleared", "info");
   };
 
   // Query for active trading session
   const { data: activeSession, error: sessionError, isLoading: isSessionLoading } = useQuery({
-    queryKey: ['trading-session', address, selectedAIWallet],
+    queryKey: ['trading-session', address],
     queryFn: async () => {
-      if (!address || !selectedAIWallet) return null;
-      console.log('Fetching trading sessions for address:', address, 'and wallet:', selectedAIWallet);
+      if (!address) return null;
+      console.log('Fetching trading sessions for address:', address);
       try {
         const sessions = await apiRequest<TradingSession[]>('/api/trading/status', {
-          params: { 
-            userAddress: address,
-            aiWalletAddress: selectedAIWallet
-          }
+          params: { userAddress: address }
         });
         console.log('Received trading sessions:', sessions);
-        
-        // Only return active sessions
-        const activeSessions = sessions?.filter(session => 
-          session.isActive && session.aiWalletAddress === selectedAIWallet
-        );
-        
-        return activeSessions?.[0] || null;
+        return sessions?.[0] || null;
       } catch (error) {
         console.error('Error fetching trading sessions:', error);
         throw error;
       }
     },
-    enabled: isConnected && !!address && !!selectedAIWallet
+    enabled: isConnected && !!address
   });
 
   // Log session information when it changes
@@ -828,36 +551,14 @@ export function AIStrategyPanel() {
       addLog(`Error loading trading session: ${sessionError}`, 'error');
     } else if (activeSession) {
       console.log('Active session loaded:', activeSession);
-      
-      // Only update state if values have changed
-      if (sessionId !== activeSession.id) {
-        console.log(`Updating sessionId from ${sessionId} to ${activeSession.id}`);
-        setSessionId(activeSession.id);
-      }
-      
-      if (isAutoTrading !== activeSession.isActive) {
-        console.log(`Updating autoTrading state from ${isAutoTrading} to ${activeSession.isActive}`);
-        setIsAutoTrading(activeSession.isActive);
-      }
-      
-      const sessionAmount = Number(activeSession.allocatedAmount);
-      // Only update allocated funds if it's different
-      if (allocatedFunds !== sessionAmount) {
-        console.log(`Updating allocatedFunds from ${allocatedFunds} to ${sessionAmount}`);
-        setAllocatedFunds(sessionAmount);
-        addLog(`Loaded existing trading session #${activeSession.id}`, 'info');
-      }
-    } else if (!isSessionLoading && address && selectedAIWallet) {
-      // Reset trading state when no active session is found
-      console.log('No active trading session found for address:', address, 'and wallet:', selectedAIWallet);
-      if (isAutoTrading) {
-        setIsAutoTrading(false);
-      }
-      if (sessionId) {
-        setSessionId(null);
-      }
+      setSessionId(activeSession.id);
+      setIsAutoTrading(activeSession.isActive);
+      setAllocatedFunds(Number(activeSession.allocatedAmount));
+      addLog(`Loaded existing trading session #${activeSession.id}`, 'info');
+    } else if (!isSessionLoading && address) {
+      console.log('No active trading session found for address:', address);
     }
-  }, [activeSession, sessionError, isSessionLoading, address, selectedAIWallet, sessionId, isAutoTrading, allocatedFunds]);
+  }, [activeSession, sessionError, isSessionLoading, address]);
 
   // Query for trades with auto-refresh
   const { data: trades } = useQuery({
@@ -890,86 +591,633 @@ export function AIStrategyPanel() {
     setIsError(false);
   };
 
-  // Add these utility functions 
-  const loadMemeStrategyConfig = async () => {
+  const connectWallet = async (useTestWallet: boolean = false) => {
     try {
-      const config = await strategyService.getMemeStrategyConfig();
-      // Only update if the config is different from current state
-      if (JSON.stringify(config) !== JSON.stringify(memeStrategyConfig)) {
-        console.log("Updating meme strategy config with new values");
-        setMemeStrategyConfig(config);
-      } else {
-        console.log("Meme strategy config unchanged, skipping update");
-      }
-      
-      // Check if the memecoin strategy is enabled
-      const isEnabled = await strategyService.isMemeStrategyEnabled();
-      // Only update if the enabled state is different
-      if (isEnabled !== isMemeStrategyEnabled) {
-        console.log(`Updating meme strategy enabled state: ${isEnabled}`);
-        setIsMemeStrategyEnabled(isEnabled);
-      } else {
-        console.log("Meme strategy enabled state unchanged, skipping update");
-      }
-    } catch (error) {
-      console.error("Error loading memecoin strategy config:", error);
-    }
-  };
+      clearError();
+      let address: string | null = null;
 
-  const loadArbitrageStrategyConfig = async () => {
-    try {
-      const config = await strategyService.getArbitrageStrategyConfig();
-      // Only update if the config is different from current state
-      if (!arbitrageStrategyConfig || JSON.stringify(config) !== JSON.stringify(arbitrageStrategyConfig)) {
-        console.log("Updating arbitrage strategy config with new values");
-        setArbitrageStrategyConfig(config);
+      if (useTestWallet) {
+        // Use web3Service's createTestWallet method
+        address = await web3Service.createTestWallet();
+        console.log("Connected to test wallet:", address);
+        setAddress(address);
+        setIsConnected(true);
+        addLog(`Connected to test wallet: ${address.slice(0, 6)}...${address.slice(-4)}`, "success");
       } else {
-        console.log("Arbitrage strategy config unchanged, skipping update");
-      }
-    } catch (error) {
-      console.error("Error loading arbitrage strategy config:", error);
-    }
-  };
-
-  // Add this to the useEffect hook that loads the settings
-  useEffect(() => {
-    // Only load config when we have allocated funds and only if 
-    // configurations haven't been loaded yet
-    if (allocatedFunds > 0) {
-      const loadConfigurations = async () => {
-        try {
-          console.log("Loading strategy configurations");
-          await loadMemeStrategyConfig();
-          await loadArbitrageStrategyConfig();
-        } catch (error) {
-          console.error("Error loading strategy configurations:", error);
+        // Connect to real wallet
+        const connected = await web3Service.connect();
+        
+        if (connected) {
+          address = await web3Service.getAddress();
+          console.log("Connected to wallet:", address);
+          setAddress(address);
+          setIsConnected(true);
+          addLog(`Connected to wallet: ${address!.slice(0, 6)}...${address!.slice(-4)}`, "success");
+        } else {
+          throw new Error("Failed to connect wallet");
         }
-      };
-      
-      loadConfigurations();
-    }
-  // Intentionally remove memeStrategyConfig and arbitrageStrategyConfig from dependencies
-  // to prevent infinite update loops
-  }, [allocatedFunds]);
+      }
 
-  // Modify the memecoin strategy handler
-  const handleMemeStrategyConfigSave = async (config: MemeStrategyConfig) => {
-    try {
-      await strategyService.saveMemeStrategyConfig(config);
-      setMemeStrategyConfig(config);
-      addLog(`Memecoin strategy configuration updated`, 'success');
-      toast({
-        title: "Configuration Saved",
-        description: "Memecoin strategy configuration has been updated",
-      });
+      // Fetch allocated funds from the server if already allocated
+      if (address) {
+        fetchTradingSessionData(address);
+      }
     } catch (error) {
-      console.error("Error saving memecoin strategy config:", error);
-      addLog(`Error updating memecoin strategy configuration`, 'error');
-      toast({
-        title: "Configuration Error",
-        description: "Failed to save memecoin strategy configuration",
-        variant: "destructive"
+      handleError(error);
+    }
+  };
+
+  // Add this function to handle wallet selection
+  const handleAIWalletSelect = (walletAddress: string, allocatedAmount: number) => {
+    setSelectedAIWallet(walletAddress);
+    setAllocatedFunds(allocatedAmount);
+    addLog(`Selected AI wallet: ${walletAddress.slice(0, 10)}...`, 'info');
+  };
+
+  // Implement the allocateFunds function to handle fund allocation
+  const allocateFunds = async (amount: number) => {
+    try {
+      if (!amount || amount <= 0) {
+        showToast("Please enter a valid amount", "destructive");
+        return;
+      }
+
+      if (!isConnected || !address) {
+        // Connect wallet first
+        addLog("Connecting wallet...", "info");
+        await connectWallet(false);
+        if (!address) {
+          showToast("Failed to connect wallet", "destructive");
+          return;
+        }
+      }
+
+      addLog(`Allocating ${amount} USDC to AI trading...`, "info");
+      
+      // First, create or get an AI wallet
+      const aiWalletAddress = await web3Service.getOrCreateAIWallet(address);
+      console.log("Using AI wallet:", aiWalletAddress);
+      setSelectedAIWallet(aiWalletAddress);
+      
+      // Create a transaction to approve and transfer funds
+      // This should trigger MetaMask popup for approval
+      const usdcAddress = import.meta.env.VITE_USDC_ADDRESS;
+      const usdcDecimals = 6; // USDC has 6 decimals
+      const amountInWei = ethers.utils.parseUnits(amount.toString(), usdcDecimals);
+      
+      // Create a contract instance for USDC
+      const provider = new ethers.providers.Web3Provider(window.ethereum);
+      const signer = provider.getSigner();
+      const tokenContract = new ethers.Contract(
+        usdcAddress,
+        ["function approve(address spender, uint256 amount) returns (bool)"],
+        signer
+      );
+      
+      addLog("Please approve the transaction in your wallet...", "info");
+      // This will trigger MetaMask popup for approval
+      const approveTx = await tokenContract.approve(aiWalletAddress, amountInWei);
+      addLog("Waiting for approval transaction to confirm...", "info");
+      await approveTx.wait();
+      
+      // Now create the trading session on the server
+      const response = await apiRequest<TradingResponse>('/api/trading/start', {
+        method: 'POST',
+        body: { 
+          userAddress: address, 
+          aiWalletAddress, 
+          allocatedAmount: amount
+        }
       });
+      
+      if (response.success) {
+        setSessionId(response.sessionId);
+        setAllocatedFunds(amount);
+        addLog(`Successfully allocated ${amount} USDC to AI trading`, "success");
+        showToast(`Successfully allocated ${amount} USDC to AI trading`);
+        queryClient.invalidateQueries({ queryKey: ['trading-session', address] });
+      } else {
+        throw new Error(response.message || "Failed to allocate funds");
+      }
+    } catch (error) {
+      console.error("Error allocating funds:", error);
+      handleError(error);
+    }
+  };
+
+  const startTradingMutation = useMutation({
+    mutationFn: async () => {
+      // First ensure wallet is connected
+      if (!isConnected) {
+        await connectWallet(false);
+      }
+      
+      const userAddress = await web3Service.getAddress();
+      if (!userAddress) {
+        console.error("Could not get wallet address");
+        throw new Error("Could not get wallet address. Please make sure your wallet is connected.");
+      }
+      
+      console.log("Starting trading session with user address:", userAddress);
+      
+      try {
+        // Use selected AI wallet if available, otherwise create a new one
+        const aiWalletAddress = selectedAIWallet || await web3Service.getOrCreateAIWallet(userAddress);
+        console.log("Using AI wallet address:", aiWalletAddress);
+        
+        console.log("Making API request to start trading session with:", {
+          userAddress, 
+          aiWalletAddress, 
+          allocatedAmount: allocatedFunds
+        });
+        
+        return apiRequest<TradingResponse>('/api/trading/start', {
+          method: 'POST',
+          body: { 
+            userAddress, 
+            aiWalletAddress, 
+            allocatedAmount: allocatedFunds 
+          }
+        });
+      } catch (error) {
+        console.error("Error in startTradingMutation:", error);
+        throw error;
+      }
+    },
+    onSuccess: (response) => {
+      console.log("Trading session start response:", response);
+      if (response.success) {
+        setSessionId(response.sessionId);
+        setIsAutoTrading(true);
+        queryClient.invalidateQueries({ queryKey: ['trading'] });
+        addLog('Auto-trading started successfully', 'success');
+        showToast('Auto-trading started successfully');
+      } else {
+        console.error("Failed to start trading session:", response);
+        throw new Error(response.message || "Failed to start trading session");
+      }
+    },
+    onError: (error) => {
+      console.error("Error starting trading session:", error);
+      handleError(error);
+    }
+  });
+
+  const stopTradingMutation = useMutation({
+    mutationFn: async () => {
+      if (!sessionId) {
+        throw new Error("No active trading session found");
+      }
+      
+      return apiRequest<TradingResponse>('/api/trading/stop', {
+        method: 'POST',
+        body: { sessionId }
+      });
+    },
+    onSuccess: (response) => {
+      if (response.success) {
+        setSessionId(null);
+        setIsAutoTrading(false);
+        queryClient.invalidateQueries();
+        addLog('Auto-trading stopped successfully', 'success');
+        showToast('Auto-trading stopped successfully');
+      } else {
+        throw new Error(response.message || "Failed to stop trading session");
+      }
+    },
+    onError: (error) => {
+      handleError(error);
+    }
+  });
+
+  const updateAllocationMutation = useMutation({
+    mutationFn: async (amount: number) => {
+      if (!sessionId) {
+        throw new Error("No active trading session found");
+      }
+      
+      return apiRequest<TradingResponse>(`/api/trading/session/${sessionId}`, {
+        method: "PATCH",
+        body: { allocatedAmount: amount }
+      });
+    },
+    onSuccess: (response) => {
+      if (response.success) {
+        queryClient.invalidateQueries();
+        addLog('Allocation updated successfully', 'success');
+        showToast('Allocation updated successfully');
+      } else {
+        throw new Error(response.message || "Failed to update session allocation");
+      }
+    },
+    onError: (error) => {
+      handleError(error);
+    }
+  });
+
+  const toggleAutoTrading = async (enabled: boolean) => {
+    if (!isConnected) {
+      showToast('Please connect your wallet first', 'destructive');
+      return;
+    }
+
+    try {
+      addLog(`${enabled ? 'Starting' : 'Stopping'} auto-trading...`, 'info');
+      console.log(`${enabled ? 'Starting' : 'Stopping'} auto-trading with wallet address: ${address}`);
+      
+      if (enabled) {
+        // Check if we have the necessary data
+        if (!address) {
+          throw new Error("Wallet address is not available");
+        }
+        
+        // Log the request details
+        console.log('Auto-trading start request:', {
+          userAddress: address,
+          aiWalletAddress: address, // Using same address for demo
+          allocatedAmount: allocatedFunds
+        });
+        
+        await startTradingMutation.mutateAsync();
+      } else {
+        if (!sessionId) {
+          throw new Error("No active trading session found");
+        }
+        
+        console.log('Auto-trading stop request for session:', sessionId);
+        await stopTradingMutation.mutateAsync();
+      }
+    } catch (error) {
+      console.error(`Error ${enabled ? 'starting' : 'stopping'} auto-trading:`, error);
+      addLog(`Error ${enabled ? 'starting' : 'stopping'} auto-trading: ${error}`, 'error');
+      showToast(`Failed to ${enabled ? 'start' : 'stop'} auto-trading: ${error}`, 'destructive');
+    }
+  };
+
+  async function updateAnalysis() {
+    try {
+      if (!isAutoTrading) return;
+      
+      addLog("Analyzing market conditions...");
+      
+      // Default values if no trades/tokens exist
+      const currentPrice = tokens?.find(t => t.symbol === "BTC")?.price || "50000.00";
+      const priceHistory = trades?.map(t => Number(t.amountB)) || [Number(currentPrice)];
+      const volume = trades?.reduce((sum, t) => sum + Number(t.amountA), 0) || 0;
+      const rsi = calculateRSI(priceHistory);
+
+      // Find the currently enabled strategy
+      const activeStrategy = strategies.find(s => s.enabled);
+      const strategyName = activeStrategy?.name || "RSI Reversal"; // Default to RSI Reversal if none found
+      
+      addLog(`Using ${strategyName} strategy for analysis`);
+
+      setIsError(false);
+      const newAnalysis = await analyzeMarketConditions(
+        Number(currentPrice),
+        priceHistory,
+        volume,
+        rsi,
+        strategyName // Pass the active strategy name
+      );
+
+      if (newAnalysis.confidence === 0 && newAnalysis.reasoning[0].includes("API key")) {
+        setIsError(true);
+        addLog("AI Analysis failed: API key not configured", "error");
+        toast({
+          title: "AI Analysis Unavailable",
+          description: "Please ensure your SONAR API key is properly configured.",
+          variant: "destructive",
+        });
+      } else {
+        setAnalysis(newAnalysis);
+        addLog(`Analysis result: ${newAnalysis.action} with ${(newAnalysis.confidence * 100).toFixed(0)}% confidence`);
+
+        if (isAutoTrading && allocatedFunds > 0) {
+          addLog("Generating DEX trading decision...");
+          // Use the new DEX-specific trading decision function
+          const poolLiquidity = tokens?.find(t => t.symbol === "BTC")?.liquidity || "1000000";
+          const dexDecision = await generateDexTradingDecision(
+            "USDC",
+            "WBTC",
+            Number(currentPrice),
+            priceHistory,
+            Number(poolLiquidity),
+            allocatedFunds
+          );
+          
+          addLog(`DEX decision: ${dexDecision.action} ${dexDecision.amount.toFixed(2)} USDC with ${(dexDecision.confidence * 100).toFixed(0)}% confidence`);
+          
+          // Store the decision for potential manual execution
+          setPendingDecision(dexDecision);
+          
+          // Execute trade based on the DEX-specific decision
+          if (dexDecision.confidence > 0.7) {
+            addLog("Confidence threshold met, executing trade...");
+            await executeAutomatedDexTrade(dexDecision);
+          } else {
+            addLog("Confidence below threshold (70%), awaiting manual confirmation");
+          }
+        }
+      }
+    } catch (error: unknown) {
+      setIsError(true);
+      const errorMessage = error instanceof Error ? error.message : "Failed to update market analysis";
+      addLog(`Error: ${errorMessage}`, "error");
+      toast({
+        title: "Analysis Error",
+        description: errorMessage,
+        variant: "destructive",
+      });
+    }
+  }
+
+  useEffect(() => {
+    const interval = setInterval(updateAnalysis, 60000);
+    if (isAutoTrading) {
+      updateAnalysis();
+    }
+
+    return () => clearInterval(interval);
+  }, [isAutoTrading]);
+
+  async function executeAutomatedDexTrade(decision: {
+    action: "BUY" | "SELL" | "HOLD";
+    tokenPair: string;
+    amount: number;
+    confidence: number;
+    reasoning: string[];
+    suggestedSlippage: number;
+  }) {
+    if (decision.action === "HOLD") {
+      console.log("Decision is HOLD, no trade to execute");
+      return;
+    }
+    
+    // Get the current user's address
+    const userAddress = await web3Service.getAddress();
+    if (!userAddress) {
+      throw new Error("Wallet not connected");
+    }
+    
+    if (decision.action === "BUY") {
+      // Handle BUY transactions (USDC → WBTC)
+      
+      // Enforce minimum BUY amount to prevent decimal errors
+      const minAmount = 5;
+      if (decision.amount < minAmount) {
+        const message = `Increasing buy amount to minimum threshold of ${minAmount} USDC`;
+        console.log(message);
+        addLog(message, "info");
+        decision.amount = minAmount;
+      }
+      
+      try {
+        // Get token decimals from the imported token definitions
+        const tokenDecimals = USDC.decimals; // This will be 18 for our testnet tokens
+        const amountString = decision.amount.toFixed(tokenDecimals);
+        console.log(`Parsing USDC amount: ${amountString} with ${tokenDecimals} decimals`);
+        
+        const amountIn = ethers.utils.parseUnits(amountString, tokenDecimals);
+        console.log(`Parsed amount in wei: ${amountIn.toString()}`);
+        
+        // Use executeAISwap instead of executeSwap to use the AI wallet
+        const result = await web3Service.executeAISwap(
+          userAddress,
+          USDC_ADDRESS,
+          WBTC_ADDRESS,
+          amountIn,
+          decision.suggestedSlippage
+        );
+
+        if (result.success && result.txHash) {
+          // Handle successful trade
+          const outputAmount = result.outputAmount || "0";
+          
+          // Save the trade to the database
+          await apiRequest<Trade>("/api/trades", {
+            method: "POST",
+            body: {
+              tokenAId: 1, // USDC token ID
+              tokenBId: 2, // WBTC token ID
+              amountA: decision.amount.toString(),
+              amountB: outputAmount,
+              isAI: true
+            }
+          });
+
+          toast({
+            title: "AI Trade Executed",
+            description: `Successfully bought WBTC with ${decision.amount} USDC. Received: ${outputAmount} WBTC`,
+          });
+          
+          addLog(`Trade executed: ${decision.amount} USDC → ${outputAmount} WBTC`, "success");
+          queryClient.invalidateQueries({ queryKey: ['trades'] });
+        } else {
+          throw new Error(result.error || "Trade failed");
+        }
+      } catch (parseError) {
+        console.error("Error parsing or executing BUY trade:", parseError);
+        addLog(`Error executing BUY trade: ${parseError instanceof Error ? parseError.message : String(parseError)}`, "error");
+        throw parseError;
+      }
+    } else if (decision.action === "SELL") {
+      // Handle SELL transactions
+      
+      // Enforce minimum SELL amount to prevent decimal errors
+      const minAmount = 0.005;
+      if (decision.amount < minAmount) {
+        const message = `Increasing sell amount to minimum threshold of ${minAmount} WBTC`;
+        console.log(message);
+        addLog(message, "info");
+        decision.amount = minAmount;
+      }
+      
+      // Double-check for extremely small values that could cause errors
+      if (decision.amount.toString().includes('e-') || decision.amount < 0.0001) {
+        console.log("Detected extremely small amount in scientific notation, aborting trade");
+        addLog("Trade amount too small, skipping execution", "error");
+        throw new Error("Amount too small to execute trade safely");
+      }
+      
+      console.log(`Executing SELL with amount: ${decision.amount} WBTC`);
+      
+      try {
+        // Get token decimals from the imported token definitions
+        const tokenDecimals = WBTC.decimals; // This will be 18 for our testnet tokens
+        // Convert scientific notation to regular decimal string with appropriate decimal places
+        let amountString;
+        
+        // Handle very small numbers that might be in scientific notation
+        if (decision.amount.toString().includes('e')) {
+          // We should never reach here due to our checks above, but just in case:
+          console.log("Scientific notation detected, aborting trade");
+          throw new Error("Cannot safely process amount in scientific notation");
+        } else {
+          amountString = decision.amount.toFixed(tokenDecimals);
+        }
+        
+        console.log(`Parsing WBTC amount: ${amountString} with ${tokenDecimals} decimals`);
+        
+        // Double check that the amount string is valid for parseUnits
+        if (!/^[0-9]+(\.[0-9]+)?$/.test(amountString)) {
+          throw new Error(`Invalid amount format: ${amountString}`);
+        }
+        
+        const amountIn = ethers.utils.parseUnits(amountString, tokenDecimals);
+        console.log(`Parsed amount in wei: ${amountIn.toString()}`);
+        
+        // Use executeAISwap instead of executeSwap to use the AI wallet
+        const result = await web3Service.executeAISwap(
+          userAddress,
+          WBTC_ADDRESS,
+          USDC_ADDRESS,
+          amountIn,
+          decision.suggestedSlippage
+        );
+
+        if (result.success && result.txHash) {
+          // Record the trade with the actual output amount
+          const outputAmount = result.outputAmount || "0";
+          
+          // Save the trade to the database
+          await apiRequest<Trade>("/api/trades", {
+            method: "POST",
+            body: {
+              tokenAId: 2, // WBTC token ID
+              tokenBId: 1, // USDC token ID
+              amountA: decision.amount.toString(),
+              amountB: outputAmount,
+              isAI: true
+            }
+          });
+
+          toast({
+            title: "AI Trade Executed",
+            description: `Successfully sold ${decision.amount} WBTC for ${outputAmount} USDC`,
+          });
+          
+          addLog(`Trade executed: ${decision.amount} WBTC → ${outputAmount} USDC`, "success");
+          queryClient.invalidateQueries({ queryKey: ['trades'] });
+        } else {
+          throw new Error(result.error || "Trade failed");
+        }
+      } catch (parseError) {
+        console.error("Error parsing or executing SELL trade:", parseError);
+        addLog(`Error executing SELL trade: ${parseError instanceof Error ? parseError.message : String(parseError)}`, "error");
+        throw parseError;
+      }
+    }
+  }
+
+  const toggleStrategy = async (id: number, enabled: boolean) => {
+    try {
+      if (enabled) {
+        // Disable all other strategies first
+        const safeStrategies = strategies || [];
+        safeStrategies.forEach(strategy => {
+          if (strategy.id !== id && strategy.enabled) {
+            toggleStrategy(strategy.id, false);
+          }
+        });
+      }
+      
+      // Update the selected strategy status on the server
+      await apiRequest<any>('/api/strategies/' + id, {
+        method: 'PATCH',
+        body: { enabled }
+      });
+      queryClient.invalidateQueries({ queryKey: ['strategies'] } as InvalidateQueryFilters);
+
+      // Log the action
+      addLog(`Strategy ${enabled ? 'enabled' : 'disabled'}`, enabled ? 'success' : 'info');
+      
+      toast({
+        title: "Strategy Updated",
+        description: `Strategy has been ${enabled ? 'enabled' : 'disabled'}`,
+      });
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : "Failed to update strategy status";
+      toast({
+        title: "Update Failed",
+        description: errorMessage,
+        variant: "destructive",
+      });
+    }
+  };
+
+  const renderTradingLogs = () => (
+    <div className="mt-4 space-y-2">
+      <div className="flex justify-between items-center">
+        <h3 className="font-medium">Trading Activity Log</h3>
+        <Button 
+          variant="outline" 
+          size="sm" 
+          onClick={clearLogs}
+          className="text-xs"
+        >
+          Clear Logs
+        </Button>
+      </div>
+      <div className="h-40 overflow-y-auto rounded-md border border-border p-2 space-y-1">
+        {logs.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No trading activity yet</p>
+        ) : (
+          logs.map((log, i) => (
+            <div key={i} className={`text-sm ${
+              log.type === 'error' ? 'text-red-500' :
+              log.type === 'success' ? 'text-green-500' :
+              'text-muted-foreground'
+            }`}>
+              <span className="text-xs">{log.timestamp || new Date().toLocaleTimeString()}</span>
+              {' '}{log.message}
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+
+  // Add this function to manually execute a pending trade
+  const executeManualTrade = async () => {
+    if (!pendingDecision) {
+      showToast("No pending trade decision available", "destructive");
+      return;
+    }
+    
+    try {
+      addLog(`Manually executing ${pendingDecision.action} trade...`, "info");
+      
+      // Execute the trade
+      await executeAutomatedDexTrade(pendingDecision);
+      
+      // Log the manual intervention to the server
+      if (sessionId) {
+        await apiRequest<{ success: boolean; message: string }>("/api/trading/manual-trade", {
+          method: "POST",
+          body: {
+            sessionId,
+            tradeDetails: {
+              action: pendingDecision.action,
+              tokenPair: pendingDecision.tokenPair,
+              amount: pendingDecision.amount,
+              suggestedSlippage: pendingDecision.suggestedSlippage,
+              reasoning: pendingDecision.reasoning
+            },
+            confidence: pendingDecision.confidence
+          }
+        });
+        
+        // Refresh the trading session data
+        queryClient.invalidateQueries(['trading-session', address]);
+      }
+      
+      // Clear the pending decision after execution
+      setPendingDecision(null);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Failed to execute manual trade";
+      addLog(`Error: ${errorMessage}`, "error");
+      showToast(errorMessage, "destructive");
     }
   };
 
@@ -993,7 +1241,50 @@ export function AIStrategyPanel() {
     }
   };
 
-  // Add this function near the handleMemeStrategyConfigSave function around line 1226
+  // Define these functions at the component level, not inside any useEffect
+  const loadMemeStrategyConfig = async () => {
+    try {
+      const config = await strategyService.getMemeStrategyConfig();
+      setMemeStrategyConfig(config);
+      
+      // Check if the memecoin strategy is enabled
+      const isEnabled = await strategyService.isMemeStrategyEnabled();
+      setIsMemeStrategyEnabled(isEnabled);
+    } catch (error) {
+      console.error("Error loading memecoin strategy config:", error);
+    }
+  };
+  
+  const handleMemeStrategyConfigSave = async (config: MemeStrategyConfig) => {
+    try {
+      await strategyService.saveMemeStrategyConfig(config);
+      setMemeStrategyConfig(config);
+      addLog(`Memecoin strategy configuration updated`, 'success');
+      toast({
+        title: "Configuration Saved",
+        description: "Memecoin strategy configuration has been updated",
+      });
+    } catch (error) {
+      console.error("Error saving memecoin strategy config:", error);
+      addLog(`Error updating memecoin strategy configuration`, 'error');
+      toast({
+        title: "Configuration Error",
+        description: "Failed to save memecoin strategy configuration",
+        variant: "destructive"
+      });
+    }
+  };
+  
+  const loadArbitrageStrategyConfig = async () => {
+    try {
+      const config = await strategyService.getArbitrageStrategyConfig();
+      setArbitrageStrategyConfig(config);
+    } catch (error) {
+      console.error("Error loading arbitrage strategy config:", error);
+    }
+  };
+  
+  // Modify the memecoin strategy handler
   const handleArbitrageStrategyConfigSave = async (config: ArbitrageStrategyConfig) => {
     try {
       await strategyService.saveArbitrageStrategyConfig(config);
@@ -1006,6 +1297,12 @@ export function AIStrategyPanel() {
       handleError(error);
     }
   };
+  
+  // Add new useEffect to load memecoin config from server
+  useEffect(() => {
+    // Instead of defining the function here, just call it directly
+    loadMemeStrategyConfig();
+  }, []);
 
   if (isError) {
     return (
@@ -1067,7 +1364,7 @@ export function AIStrategyPanel() {
               
               <AIWalletSelector 
                 userAddress={address} 
-                onWalletSelect={(walletAddress, allocatedAmount) => handleAIWalletSelect(walletAddress, allocatedAmount)} 
+                onWalletSelect={handleAIWalletSelect} 
               />
 
               <div className="flex items-center justify-between">
@@ -1191,24 +1488,34 @@ export function AIStrategyPanel() {
                 ).map((strategy) => (
                   <div
                     key={strategy.id}
-                    className="flex items-center justify-between p-3 mb-2 bg-white rounded-lg shadow-sm border border-gray-100 hover:border-blue-200 transition-all"
+                    className="flex items-center justify-between py-2 border-b border-border"
                   >
-                    <div className="flex-1">
-                      <div className="flex items-center">
-                        <h3 className="text-sm font-medium">{strategy.name}</h3>
-                        {strategy.hasLimitOrders && (
-                          <span className="ml-2 px-2 py-0.5 text-xs bg-blue-100 text-blue-800 rounded-full">
-                            Limit Orders
-                          </span>
-                        )}
+                    <div className="flex items-center space-x-2">
+                      <div>
+                        <div className="font-medium">{strategy.name}</div>
+                        <div className="text-sm text-muted-foreground">{strategy.description}</div>
                       </div>
-                      <p className="text-xs text-gray-500 mt-1">{strategy.description}</p>
                     </div>
-                    <div className="ml-4">
+                    <div className="flex items-center space-x-2">
                       <Switch
                         checked={strategy.enabled}
                         onCheckedChange={(checked) => toggleStrategy(strategy.id, checked)}
                       />
+                      <Button 
+                        size="sm" 
+                        variant="outline"
+                        onClick={() => {
+                          if (strategy.name === "Memecoin Bracket Orders") {
+                            setShowMemeStrategy(true);
+                          } else if (strategy.name === "DEX Pool Arbitrage") {
+                            setShowArbitrageStrategyModal(true);
+                          } else if (strategy.name === "Limit Order Strategy") {
+                            setShowLimitOrderConfig(true);
+                          }
+                        }}
+                      >
+                        Configure
+                      </Button>
                     </div>
                   </div>
                 ))}
@@ -1292,11 +1599,11 @@ export function AIStrategyPanel() {
                   
                   return (
                     <Button 
-                      variant="default"
+                      variant={isAutoTrading ? "outline" : "destructive"}
                       onClick={() => toggleAutoTrading(!isAutoTrading)}
                       className={`
-                        ${isAutoTrading ? "bg-red-600 hover:bg-red-700 text-white" : "bg-yellow-500 hover:bg-yellow-600 text-white"}
-                        ${isReadyToTrade ? "animate-pulse shadow-md" : ""}
+                        ${isAutoTrading ? "bg-green-50 text-green-700 border-green-200" : ""}
+                        ${isReadyToTrade ? "animate-pulse shadow-md shadow-red-400/40" : ""}
                       `}
                       disabled={!hasEnabledStrategy}
                     >
@@ -1412,15 +1719,8 @@ export function AIStrategyPanel() {
           {/* Trading Logs - Only shown when trading is active */}
           {isAutoTrading && renderTradingLogs()}
 
-          {/* AI Recommendation Analyst - Only shown when trading is active and there are trades */}
-          {isAutoTrading && trades && (
-            <AIRecommendationAnalyst 
-              trades={trades} 
-              isVisible={isAutoTrading && trades.length > 0} 
-              activeStrategy={strategies.find(s => s.enabled)}
-            />
-          )}
-
+          {/* Move Past Trades and Performance Chart to the end */}
+          
           {/* AI Market Analysis - Only shown when trading is active */}
           {isAutoTrading && analysis && (
             <div className="space-y-4 border-t pt-4">
@@ -1468,8 +1768,8 @@ export function AIStrategyPanel() {
                     {trades.slice(0, 5).map((trade, i) => {
                       const isBuy = trade.tokenAId === 1; // Assuming tokenId 1 is USDC
                       const profitLoss = isBuy 
-                        ? ((Number(trade.amountB) / Number(trade.amountA)) - 1) * 100
-                        : ((Number(trade.amountA) / Number(trade.amountB)) - 1) * 100;
+                        ? ((Number(trade.amountB) / Number(trade.amountA)) - 1) * 100)
+                        : ((Number(trade.amountA) / Number(trade.amountB)) - 1) * 100);
                       
                       return (
                         <tr key={i} className="border-t border-border">
@@ -1569,9 +1869,10 @@ function calculateWinRate(trades: Trade[]): number {
 function calculateAvgProfit(trades: Trade[]): number {
   if (!trades.length) return 0;
   
+  // Calculate profit percentage for each trade
   let totalProfit = 0;
   for (const trade of trades) {
-    const profit = ((Number(trade.amountB) - Number(trade.amountA)) / Number(trade.amountA)) * 100;
+    const profit = ((Number(trade.amountB) - Number(trade.amountA)) / Number(trade.amountA)) * 100);
     totalProfit += profit;
   }
   

@@ -71,13 +71,13 @@ async function main() {
     `USDT_USDC_500=${usdtUsdc500}`
   ]
 
-  // const wbtcUsdc500 = await deployPool(WRAPPED_BITCOIN_ADDRESS, USDC_ADDRESS, 500, encodePriceSqrt(1, 1))
+  const wbtcUsdc1000 = await deployPool(WRAPPED_BITCOIN_ADDRESS, USDC_ADDRESS, 1000, encodePriceSqrt(114700, 1))
 
-  // addresses.push(`WBTC_USDC_500=${wbtcUsdc500}`)
+  addresses.push(`WBTC_USDC_1000=${wbtcUsdc1000}`)
 
-  const wbtcUsdt500 = await deployPool(WRAPPED_BITCOIN_ADDRESS, TETHER_ADDRESS, 500, encodePriceSqrt(95000, 1))
+  // const wbtcUsdt1000 = await deployPool(WRAPPED_BITCOIN_ADDRESS, TETHER_ADDRESS, 1000, encodePriceSqrt(114700, 1))
 
-  addresses.push(`WBTC_USDT_500=${wbtcUsdt500}`)
+  // addresses.push(`WBTC_USDT_1000=${wbtcUsdt500}`)
 
   const data = '\n' + addresses.join('\n')
   const writeFile = promisify(fs.appendFile);

@@ -1,5 +1,6 @@
 import { apiRequest } from "./api";
 import { Strategy } from "@shared/schema";
+import { ArbitrageStrategyConfig } from "@/components/ArbitrageStrategyModal";
 
 // Custom types for Memecoin strategy configuration
 export interface MemeStrategyConfig {
@@ -30,8 +31,8 @@ export const strategyService = {
   // Toggle strategy enabled/disabled status
   async toggleStrategy(id: number, enabled: boolean): Promise<Strategy> {
     const response = await apiRequest(`/api/strategies/${id}/toggle`, {
-      method: 'POST',
-      body: JSON.stringify({ enabled }),
+      method: 'GET',
+      params: { enabled },
     });
     return response.strategy;
   },
@@ -73,6 +74,50 @@ export const strategyService = {
       return memeStrategy?.enabled || false;
     } catch (error) {
       console.error("Error checking memecoin strategy status:", error);
+      return false;
+    }
+  },
+
+  // Save arbitrage strategy configuration
+  async saveArbitrageStrategyConfig(config: ArbitrageStrategyConfig): Promise<void> {
+    const response = await apiRequest('/api/strategy-config/arbitrage', {
+      method: 'POST',
+      body: JSON.stringify(config),
+    });
+    return response;
+  },
+
+  // Get arbitrage strategy configuration
+  async getArbitrageStrategyConfig(): Promise<ArbitrageStrategyConfig> {
+    try {
+      const response = await apiRequest('/api/strategy-config/arbitrage');
+      return response.config;
+    } catch (error) {
+      // Return default config if no configuration is found
+      return {
+        minPriceDiscrepancy: 0.5,
+        maxSlippage: 0.5,
+        gasConsideration: true,
+        refreshInterval: 30,
+        maxPools: 5,
+        preferredDEXes: ['Uniswap V3'],
+        autoExecute: false,
+        maxTradeSize: 10,
+        minProfitThreshold: 0.2,
+        useLiquidityFiltering: true,
+        liquidityThreshold: 10000
+      };
+    }
+  },
+  
+  // Check if the arbitrage strategy is enabled
+  async isArbitrageStrategyEnabled(): Promise<boolean> {
+    try {
+      const strategies = await this.getStrategies();
+      const arbitrageStrategy = strategies.find(s => s.name === "DEX Pool Arbitrage");
+      return arbitrageStrategy?.enabled || false;
+    } catch (error) {
+      console.error("Error checking arbitrage strategy status:", error);
       return false;
     }
   }

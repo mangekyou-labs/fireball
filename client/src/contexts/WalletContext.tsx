@@ -22,8 +22,8 @@ const WalletContext = createContext<WalletContextType>({
 
 // Chain configuration
 const targetNetwork = {
-  chainId: `0x${Number(57054).toString(16)}`, // Convert to hex
-  chainName: 'Sonic Blaze Testnet',
+  chainId: `0x${Number(112).toString(16)}`, // Convert to hex
+  chainName: 'ABC Testnet',
   nativeCurrency: {
     name: 'ETH',
     symbol: 'ETH',
@@ -89,7 +89,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       if (!switched) {
         toast({
           title: "Network Error",
-          description: "Please switch to Sonic Blaze network!",
+          description: "Please switch to ABC network!",
           variant: "destructive"
         });
         return;

@@ -22,5 +22,11 @@ module.exports = {
       chainId: 57054,
       accounts: [process.env.PRIVATE_KEY, process.env.SECOND_PRIVATE_KEY],
     },
+    abcTestnet: {
+      url: "https://rpc.abc.t.raas.gelato.cloud",
+      chainId: 112,
+      accounts: [process.env.PRIVATE_KEY, process.env.SECOND_PRIVATE_KEY],
+      explorer: "https://explorer.abc.t.raas.gelato.cloud/",
+    },
   },
 };
