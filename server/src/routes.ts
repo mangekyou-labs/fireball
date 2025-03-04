@@ -4,6 +4,7 @@ import { storage } from "./storage.js";
 import { insertTokenSchema, insertTradeSchema, insertStrategySchema } from "@shared/schema.js";
 import fetch from "node-fetch";
 import { ethers } from "ethers";
+import { runTradingIteration } from "./tradingLogic.js";
 
 // Perplexity API configuration
 const PERPLEXITY_API_URL = "https://api.perplexity.ai";
@@ -47,13 +48,13 @@ const activeJobs = new Map<number, NodeJS.Timeout>();
 
 function startTradingJob(sessionId: number) {
   console.log(`Starting trading job for session ${sessionId}`);
-  
+
   // Check if job already exists
   if (activeJobs.has(sessionId)) {
     console.log(`Job already exists for session ${sessionId}`);
     return;
   }
-  
+
   // Create a job that runs every 5 minutes
   const job = setInterval(async () => {
     try {
@@ -64,24 +65,38 @@ function startTradingJob(sessionId: number) {
         stopTradingJob(sessionId);
         return;
       }
-      
+
       const session = sessions[0];
       console.log(`Running trading job for session ${sessionId} with allocation ${session.allocatedAmount}`);
-      
-      // TODO: Implement actual trading logic here
-      // This would analyze the market and execute trades based on the AI strategy
-      
+
+      // Run the trading iteration
+      await runTradingIteration(sessionId);
     } catch (error) {
       console.error(`Error in trading job for session ${sessionId}:`, error);
+
+      // Log the error
+      try {
+        await storage.createWalletActivityLog({
+          sessionId,
+          activityType: "JOB_ERROR",
+          details: {
+            error: error instanceof Error ? error.message : "Unknown error",
+            timestamp: new Date()
+          },
+          isManualIntervention: false
+        });
+      } catch (logError) {
+        console.error("Failed to log job error:", logError);
+      }
     }
   }, 5 * 60 * 1000); // Run every 5 minutes
-  
+
   activeJobs.set(sessionId, job);
 }
 
 function stopTradingJob(sessionId: number) {
   console.log(`Stopping trading job for session ${sessionId}`);
-  
+
   const job = activeJobs.get(sessionId);
   if (job) {
     clearInterval(job);
@@ -128,6 +143,23 @@ interface ArbitrageStrategyConfig {
   liquidityThreshold: number;
 }
 
+// Helper function to clean markdown code blocks from content
+function cleanMarkdownCodeBlocks(content: string): string {
+  // Find content between ```json and ``` markers
+  const jsonMatch = content.match(/```json\n([\s\S]*?)\n```/);
+  if (jsonMatch && jsonMatch[1]) {
+    return jsonMatch[1].trim();
+  }
+
+  // Fallback: try to find any JSON object in the content
+  const jsonObjectMatch = content.match(/\{[\s\S]*\}/);
+  if (jsonObjectMatch) {
+    return jsonObjectMatch[0].trim();
+  }
+
+  throw new Error("No valid JSON content found in the response");
+}
+
 export async function registerRoutes(app: Express): Promise<Server> {
   // Token routes
   app.get("/api/tokens", async (_req, res) => {
@@ -168,8 +200,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ strategies });
     } catch (error) {
       console.error("Error fetching strategies:", error);
-      res.status(500).json({ 
-        error: "Failed to fetch strategies", 
+      res.status(500).json({
+        error: "Failed to fetch strategies",
         details: error instanceof Error ? error.message : String(error)
       });
     }
@@ -196,47 +228,47 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get('/api/strategies/:id/toggle', async (req, res) => {
     const id = parseInt(req.params.id);
-    
+
     try {
       console.log(`Toggling strategy ${id} to ${req.query.enabled}`);
-      
+
       // Check if this is the memecoin strategy
       const allStrategies = await storage.getStrategies();
-      const isMemeStrategy = allStrategies.some(s => 
+      const isMemeStrategy = allStrategies.some(s =>
         s.id === id && s.name === "Memecoin Bracket Orders"
       );
 
       const strategy = await storage.updateStrategy(id, req.query.enabled === 'true');
-      
+
       // If enabling the memecoin strategy, disable all others
       if (isMemeStrategy && req.query.enabled === 'true') {
         // Get all other strategies
-        const otherStrategies = allStrategies.filter(s => 
+        const otherStrategies = allStrategies.filter(s =>
           s.id !== id && s.enabled === true
         );
-        
+
         // Disable all other strategies
         for (const s of otherStrategies) {
           await storage.updateStrategy(s.id, false);
         }
       }
-      
+
       // If enabling any other strategy, disable the memecoin strategy
       else if (!isMemeStrategy && req.query.enabled === 'true') {
-        const memeStrategy = allStrategies.find(s => 
+        const memeStrategy = allStrategies.find(s =>
           s.name === "Memecoin Bracket Orders" && s.enabled === true
         );
-        
+
         if (memeStrategy) {
           await storage.updateStrategy(memeStrategy.id, false);
         }
       }
-      
+
       res.json({ strategy });
     } catch (error) {
       console.error(`Error toggling strategy ${id}:`, error);
-      res.status(500).json({ 
-        error: "Failed to toggle strategy", 
+      res.status(500).json({
+        error: "Failed to toggle strategy",
         details: error instanceof Error ? error.message : String(error)
       });
     }
@@ -247,7 +279,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       if (!PERPLEXITY_API_KEY) {
         console.error("PERPLEXITY_API_KEY is not configured. Check your environment variables or .env file.");
-        return res.status(500).json({ 
+        return res.status(500).json({
           error: "API key not configured",
           recommendation: "AI analysis currently unavailable. Please check your API key configuration.",
           confidence: 0,
@@ -325,15 +357,16 @@ Provide analysis in JSON format:
 
       const data = await response.json();
       console.log("Perplexity API response:", JSON.stringify(data).substring(0, 200) + "...");
-      
+
       const content = data.choices[0].message.content;
-      
+
       if (!content) {
         throw new Error("Empty response from API");
       }
 
       try {
-        const analysis = JSON.parse(content);
+        const cleanedContent = cleanMarkdownCodeBlocks(content);
+        const analysis = JSON.parse(cleanedContent);
         res.json(analysis);
       } catch (parseError) {
         console.error("Failed to parse API response:", parseError);
@@ -402,12 +435,20 @@ Focus on:
 
       const data = await response.json();
       const content = data.choices[0].message.content;
-      
+
       if (!content) {
         throw new Error("Empty response from API");
       }
 
-      res.json(content);
+      try {
+        const cleanedContent = cleanMarkdownCodeBlocks(content);
+        const analysis = JSON.parse(cleanedContent);
+        res.json(analysis);
+      } catch (parseError) {
+        console.error("Failed to parse API response:", parseError);
+        console.error("Raw content:", content);
+        throw new Error("Invalid response format from API");
+      }
     } catch (error) {
       console.error("Error generating trading strategy:", error);
       res.status(500).json("Unable to generate trading strategy at this time. Please try again later.");
@@ -477,16 +518,17 @@ Provide analysis in JSON format:
 
       const data = await response.json();
       const content = data.choices[0].message.content;
-      
+
       if (!content) {
         throw new Error("Empty response from API");
       }
 
-      const decision = JSON.parse(content);
-      
+      const cleanedContent = cleanMarkdownCodeBlocks(content);
+      const decision = JSON.parse(cleanedContent);
+
       // Calculate the actual amount based on the percentage
       const actualAmount = (decision.amount / 100) * userBalance;
-      
+
       res.json({
         ...decision,
         amount: actualAmount
@@ -508,7 +550,7 @@ Provide analysis in JSON format:
   app.post("/api/trading/start", async (req, res) => {
     try {
       const { userAddress, aiWalletAddress, allocatedAmount } = req.body;
-      
+
       // Store trading session in database
       const session = await storage.createTradingSession({
         userAddress,
@@ -528,16 +570,16 @@ Provide analysis in JSON format:
       // Start background trading job for this session
       startTradingJob(session.id);
 
-      res.json({ 
-        success: true, 
+      res.json({
+        success: true,
         message: "AI trading session started",
-        sessionId: session.id 
+        sessionId: session.id
       });
     } catch (error) {
       console.error("Error starting trading session:", error);
-      res.status(500).json({ 
-        success: false, 
-        error: "Failed to start trading session" 
+      res.status(500).json({
+        success: false,
+        error: "Failed to start trading session"
       });
     }
   });
@@ -545,10 +587,10 @@ Provide analysis in JSON format:
   app.post("/api/trading/stop", async (req, res) => {
     try {
       const { sessionId } = req.body;
-      
+
       // Stop the trading session
       await storage.updateTradingSession(sessionId, { isActive: false });
-      
+
       // Log the wallet activity
       await storage.createWalletActivityLog({
         sessionId,
@@ -556,19 +598,19 @@ Provide analysis in JSON format:
         details: { sessionId },
         isManualIntervention: false
       });
-      
+
       // Stop background trading job
       stopTradingJob(sessionId);
 
-      res.json({ 
-        success: true, 
-        message: "AI trading session stopped" 
+      res.json({
+        success: true,
+        message: "AI trading session stopped"
       });
     } catch (error) {
       console.error("Error stopping trading session:", error);
-      res.status(500).json({ 
-        success: false, 
-        error: "Failed to stop trading session" 
+      res.status(500).json({
+        success: false,
+        error: "Failed to stop trading session"
       });
     }
   });
@@ -577,7 +619,7 @@ Provide analysis in JSON format:
   app.post("/api/trading/manual-trade", async (req, res) => {
     try {
       const { sessionId, tradeDetails, confidence } = req.body;
-      
+
       // Log the manual intervention
       await storage.createWalletActivityLog({
         sessionId,
@@ -587,15 +629,15 @@ Provide analysis in JSON format:
         isManualIntervention: true
       });
 
-      res.json({ 
-        success: true, 
-        message: "Manual trade intervention logged successfully" 
+      res.json({
+        success: true,
+        message: "Manual trade intervention logged successfully"
       });
     } catch (error) {
       console.error("Error logging manual trade:", error);
-      res.status(500).json({ 
-        success: false, 
-        error: "Failed to log manual trade" 
+      res.status(500).json({
+        success: false,
+        error: "Failed to log manual trade"
       });
     }
   });
@@ -604,16 +646,16 @@ Provide analysis in JSON format:
   app.get("/api/trading/activity-logs/:sessionId", async (req, res) => {
     try {
       const sessionId = parseInt(req.params.sessionId);
-      
+
       // Get activity logs for the session
       const logs = await storage.getWalletActivityLogs(sessionId);
-      
+
       res.json(logs);
     } catch (error) {
       console.error("Error fetching activity logs:", error);
-      res.status(500).json({ 
-        success: false, 
-        error: "Failed to fetch activity logs" 
+      res.status(500).json({
+        success: false,
+        error: "Failed to fetch activity logs"
       });
     }
   });
@@ -621,28 +663,28 @@ Provide analysis in JSON format:
   app.get("/api/trading/status", async (req, res) => {
     try {
       const { userAddress, aiWalletAddress } = req.query;
-      
+
       if (!userAddress) {
-        return res.status(400).json({ 
-          success: false, 
-          error: "User address is required" 
+        return res.status(400).json({
+          success: false,
+          error: "User address is required"
         });
       }
-      
+
       // Get active trading sessions for the user
       const sessions = await storage.getTradingSessions(userAddress as string);
-      
+
       // Filter by AI wallet address if provided
-      const filteredSessions = aiWalletAddress 
+      const filteredSessions = aiWalletAddress
         ? sessions.filter(session => session.aiWalletAddress === aiWalletAddress)
         : sessions;
-      
+
       res.json(filteredSessions);
     } catch (error) {
       console.error("Error fetching trading status:", error);
-      res.status(500).json({ 
-        success: false, 
-        error: "Failed to fetch trading status" 
+      res.status(500).json({
+        success: false,
+        error: "Failed to fetch trading status"
       });
     }
   });
@@ -651,23 +693,23 @@ Provide analysis in JSON format:
   app.get("/api/wallets", async (req, res) => {
     try {
       const { userAddress } = req.query;
-      
+
       if (!userAddress) {
-        return res.status(400).json({ 
-          success: false, 
-          error: "User address is required" 
+        return res.status(400).json({
+          success: false,
+          error: "User address is required"
         });
       }
-      
+
       // Get AI wallets for the user
       const wallets = await storage.getAIWallets(userAddress as string);
-      
+
       res.json(wallets);
     } catch (error) {
       console.error("Error fetching AI wallets:", error);
-      res.status(500).json({ 
-        success: false, 
-        error: "Failed to fetch AI wallets" 
+      res.status(500).json({
+        success: false,
+        error: "Failed to fetch AI wallets"
       });
     }
   });
@@ -675,14 +717,14 @@ Provide analysis in JSON format:
   app.post("/api/wallets", async (req, res) => {
     try {
       const { userAddress, aiWalletAddress, allocatedAmount } = req.body;
-      
+
       if (!userAddress || !aiWalletAddress || !allocatedAmount) {
-        return res.status(400).json({ 
-          success: false, 
-          error: "User address, AI wallet address, and allocated amount are required" 
+        return res.status(400).json({
+          success: false,
+          error: "User address, AI wallet address, and allocated amount are required"
         });
       }
-      
+
       // Create a new AI wallet
       const wallet = await storage.createAIWallet({
         userAddress,
@@ -690,16 +732,16 @@ Provide analysis in JSON format:
         allocatedAmount,
         isActive: false
       });
-      
-      res.json({ 
-        success: true, 
-        wallet 
+
+      res.json({
+        success: true,
+        wallet
       });
     } catch (error) {
       console.error("Error creating AI wallet:", error);
-      res.status(500).json({ 
-        success: false, 
-        error: "Failed to create AI wallet" 
+      res.status(500).json({
+        success: false,
+        error: "Failed to create AI wallet"
       });
     }
   });
@@ -733,13 +775,13 @@ Provide analysis in JSON format:
       res.json({ config: result.config });
     } catch (error) {
       console.error('Error getting arbitrage strategy config:', error);
-      res.status(500).json({ 
+      res.status(500).json({
         error: 'Failed to get arbitrage strategy configuration',
         details: error instanceof Error ? error.message : String(error)
       });
     }
   });
-  
+
   // Save arbitrage strategy configuration
   app.post('/api/strategy-config/arbitrage', async (req, res) => {
     try {
@@ -750,7 +792,7 @@ Provide analysis in JSON format:
       res.json({ success: true });
     } catch (error) {
       console.error('Error saving arbitrage strategy config:', error);
-      res.status(500).json({ 
+      res.status(500).json({
         error: 'Failed to save arbitrage strategy configuration',
         details: error instanceof Error ? error.message : String(error)
       });
@@ -761,21 +803,21 @@ Provide analysis in JSON format:
   app.get("/api/pool/price-data", async (req, res) => {
     try {
       const { tokenA, tokenB } = req.query;
-      
+
       if (!tokenA || !tokenB) {
-        return res.status(400).json({ 
-          success: false, 
-          error: "Both tokenA and tokenB are required" 
+        return res.status(400).json({
+          success: false,
+          error: "Both tokenA and tokenB are required"
         });
       }
-      
+
       const pairKey = `${tokenA}/${tokenB}`;
-      
+
       // Check if we have mock data for this pair
       if (mockPriceData[pairKey]) {
         return res.json(mockPriceData[pairKey]);
       }
-      
+
       // If we don't have mock data for this specific pair, try the reverse pair
       const reversePairKey = `${tokenB}/${tokenA}`;
       if (mockPriceData[reversePairKey]) {
@@ -785,7 +827,7 @@ Provide analysis in JSON format:
         data.priceHistory = data.priceHistory.map((price: number) => 1 / price);
         return res.json(data);
       }
-      
+
       // If we don't have data for either pair, return default data
       return res.json({
         currentPrice: 1.0,
@@ -795,9 +837,9 @@ Provide analysis in JSON format:
       });
     } catch (error) {
       console.error("Error fetching pool price data:", error);
-      res.status(500).json({ 
-        success: false, 
-        error: "Failed to fetch pool price data" 
+      res.status(500).json({
+        success: false,
+        error: "Failed to fetch pool price data"
       });
     }
   });

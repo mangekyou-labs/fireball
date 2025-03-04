@@ -1,8 +1,23 @@
-import { Token, InsertToken, Trade, InsertTrade, Strategy, InsertStrategy, TradingSession, InsertTradingSession, tradingSessions, WalletActivityLog, InsertWalletActivityLog, walletActivityLogs } from "@shared/schema.js";
-import { tokens, trades, strategies } from "@shared/schema.js";
+import { Token, InsertToken, Trade, InsertTrade, Strategy, InsertStrategy, TradingSession, InsertTradingSession, tradingSessions, WalletActivityLog, InsertWalletActivityLog, walletActivityLogs, tokens, trades, strategies } from "@shared/schema.js";
 import { db } from "./db.js";
-import { eq, and } from "drizzle-orm";
-import * as schema from "@shared/schema.js";
+import { eq, and, sql } from "drizzle-orm";
+import { pgTable, serial, integer, varchar, jsonb } from "drizzle-orm/pg-core";
+
+// Add interface for strategy config
+interface StrategyConfig {
+  id: number;
+  strategyId: number;
+  configType: string;
+  configJson: any;
+}
+
+// Add the table definition using Drizzle ORM
+const strategyConfigTable = pgTable('strategy_config', {
+  id: serial('id').primaryKey(),
+  strategyId: integer('strategy_id').notNull(),
+  configType: varchar('config_type', { length: 50 }).notNull(),
+  configJson: jsonb('config_json').notNull()
+});
 
 // Add interface for memecoin config
 interface MemeStrategyConfig {
@@ -15,6 +30,11 @@ interface MemeStrategyConfig {
   isAIEnabled: boolean;
   investmentPercentage: number;
 }
+
+// Add type for risk level map
+type StrategyRiskMap = {
+  [key: string]: string;
+};
 
 // Add the ArbitrageStrategyConfig interface with the other strategy config interfaces
 interface ArbitrageStrategyConfig {
@@ -52,7 +72,7 @@ export interface IStorage {
   getTradingSessionById(id: number): Promise<TradingSession[]>;
   createTradingSession(session: InsertTradingSession): Promise<TradingSession>;
   updateTradingSession(id: number, updates: Partial<InsertTradingSession>): Promise<TradingSession>;
-  
+
   // Wallet activity log operations
   getWalletActivityLogs(sessionId: number): Promise<WalletActivityLog[]>;
   createWalletActivityLog(log: InsertWalletActivityLog): Promise<WalletActivityLog>;
@@ -75,6 +95,8 @@ export interface IStorage {
 export interface DatabaseStorage extends IStorage {
   getAIWallets(userAddress: string): Promise<AIWallet[]>;
   createAIWallet(wallet: InsertAIWallet): Promise<AIWallet>;
+  getAIWalletPrivateKey(sessionId: number): Promise<{ privateKey: string } | null>;
+  getTokenAddress(symbol: string): Promise<string | null>;
 }
 
 // Define the AIWallet interface
@@ -189,7 +211,7 @@ export class DatabaseStorage implements DatabaseStorage {
   async updateTradingSession(id: number, updates: Partial<InsertTradingSession>): Promise<TradingSession> {
     const [updatedSession] = await db
       .update(tradingSessions)
-      .set({ 
+      .set({
         ...updates,
         updatedAt: new Date()
       })
@@ -219,14 +241,14 @@ export class DatabaseStorage implements DatabaseStorage {
   // Initialize base data if not exists
   async initializeBaseData() {
     console.log("Initializing base data...");
-    
+
     try {
       // Force removal of all strategies to reinitialize them
       console.log("Removing all existing strategies to reinitialize...");
       await db.delete(strategies);
-      
+
       console.log("Initializing strategies...");
-      
+
       // Create the basic strategies
       await this.createStrategy({
         name: "Moving Average Cross",
@@ -237,7 +259,7 @@ export class DatabaseStorage implements DatabaseStorage {
         strategyType: "technical",
         hasLimitOrders: false
       });
-      
+
       await this.createStrategy({
         name: "RSI Reversal",
         rsiThreshold: "70",
@@ -247,7 +269,7 @@ export class DatabaseStorage implements DatabaseStorage {
         strategyType: "technical",
         hasLimitOrders: false
       });
-      
+
       await this.createStrategy({
         name: "DCA with Limit Orders",
         rsiThreshold: "65",
@@ -257,7 +279,7 @@ export class DatabaseStorage implements DatabaseStorage {
         strategyType: "technical",
         hasLimitOrders: true
       });
-      
+
       await this.createStrategy({
         name: "RSI with Limit Orders",
         rsiThreshold: "65",
@@ -267,7 +289,7 @@ export class DatabaseStorage implements DatabaseStorage {
         strategyType: "technical",
         hasLimitOrders: true
       });
-      
+
       await this.createStrategy({
         name: "Volume Breakout",
         rsiThreshold: "75",
@@ -277,7 +299,7 @@ export class DatabaseStorage implements DatabaseStorage {
         strategyType: "technical",
         hasLimitOrders: false
       });
-      
+
       // Add the missing Memecoin Bracket Orders strategy
       await this.createStrategy({
         name: "Memecoin Bracket Orders",
@@ -288,9 +310,9 @@ export class DatabaseStorage implements DatabaseStorage {
         strategyType: "social",
         hasLimitOrders: true
       });
-      
+
       console.log("Strategies initialized");
-      
+
       // Check if tokens exist, initialize if needed
       const existingTokens = await this.getTokens();
       if (existingTokens.length === 0) {
@@ -299,7 +321,7 @@ export class DatabaseStorage implements DatabaseStorage {
           { symbol: "USDC", name: "USD Coin", price: "1.00", liquidity: "5000000" },
           { symbol: "WBTC", name: "Wrapped Bitcoin", price: "50000.00", liquidity: "2000000" }
         ];
-        
+
         // Create base tokens
         for (const token of baseTokens) {
           await this.createToken(token);
@@ -316,31 +338,29 @@ export class DatabaseStorage implements DatabaseStorage {
   // Add this new function to update strategy risk levels
   async updateStrategyRiskLevels(): Promise<void> {
     console.log("Checking and updating strategy risk levels...");
-    
-    // Define expected risk levels for each strategy
-    const riskLevelMap = {
+
+    // Define expected risk levels for each strategy with proper typing
+    const riskLevelMap: StrategyRiskMap = {
       "Moving Average Cross": "low",
       "RSI Reversal": "medium",
       "DCA with Limit Orders": "low",
       "RSI with Limit Orders": "medium",
       "Volume Breakout": "high"
     };
-    
+
     // Get all strategies from the database
     const strategies = await this.getStrategies();
-    
+
     // Loop through strategies and update them if needed
     for (const strategy of strategies) {
-      const expectedRiskLevel = riskLevelMap[strategy.name];
-      
+      const expectedRiskLevel = riskLevelMap[strategy.name as keyof typeof riskLevelMap];
+
       if (expectedRiskLevel && strategy.riskLevel !== expectedRiskLevel) {
         console.log(`Updating ${strategy.name} risk level from ${strategy.riskLevel} to ${expectedRiskLevel}`);
-        
-        // Update the risk level directly instead of toggling enabled state
         await this.updateStrategyRiskLevel(strategy.id, expectedRiskLevel);
       }
     }
-    
+
     console.log("Strategy risk levels updated");
   }
 
@@ -349,25 +369,25 @@ export class DatabaseStorage implements DatabaseStorage {
     try {
       // Check if config exists
       const existingConfig = await db.select()
-        .from(schema.strategyConfig)
+        .from(strategyConfigTable)
         .where(and(
-          eq(schema.strategyConfig.strategyId, strategyId),
-          eq(schema.strategyConfig.configType, configType)
+          eq(strategyConfigTable.strategyId, strategyId),
+          eq(strategyConfigTable.configType, configType)
         ));
-      
+
       if (existingConfig.length > 0) {
         // Update existing config
-        await db.update(schema.strategyConfig)
+        await db.update(strategyConfigTable)
           .set({
             configJson: configData
           })
           .where(and(
-            eq(schema.strategyConfig.strategyId, strategyId),
-            eq(schema.strategyConfig.configType, configType)
+            eq(strategyConfigTable.strategyId, strategyId),
+            eq(strategyConfigTable.configType, configType)
           ));
       } else {
         // Insert new config
-        await db.insert(schema.strategyConfig).values({
+        await db.insert(strategyConfigTable).values({
           strategyId,
           configType,
           configJson: configData
@@ -378,48 +398,48 @@ export class DatabaseStorage implements DatabaseStorage {
       throw error;
     }
   }
-  
+
   // Get strategy configuration
   async getStrategyConfig<T>(strategyId: number, configType: string): Promise<T | null> {
     try {
       const result = await db.select()
-        .from(schema.strategyConfig)
+        .from(strategyConfigTable)
         .where(and(
-          eq(schema.strategyConfig.strategyId, strategyId),
-          eq(schema.strategyConfig.configType, configType)
+          eq(strategyConfigTable.strategyId, strategyId),
+          eq(strategyConfigTable.configType, configType)
         ));
-      
-      if (result.length > 0) {
+
+      if (result.length > 0 && result[0].configJson) {
         return result[0].configJson as T;
       }
-      
+
       return null;
     } catch (error) {
       console.error('Error getting strategy config:', error);
       throw error;
     }
   }
-  
+
   // Get memecoin strategy
   async getMemeStrategy(): Promise<{ strategy: any, config: MemeStrategyConfig | null }> {
     try {
-      const strategies = await db.select()
-        .from(schema.strategies)
-        .where(eq(schema.strategies.name, "Memecoin Bracket Orders"));
-      
-      if (strategies.length === 0) {
-        return { 
-          strategy: null, 
-          config: null 
+      const strategyResults = await db.select()
+        .from(strategies)
+        .where(eq(strategies.name, "Memecoin Bracket Orders"));
+
+      if (strategyResults.length === 0) {
+        return {
+          strategy: null,
+          config: null
         };
       }
-      
-      const strategy = strategies[0];
+
+      const strategy = strategyResults[0];
       const config = await this.getStrategyConfig<MemeStrategyConfig>(
-        strategy.id, 
+        strategy.id,
         'memecoin'
       );
-      
+
       return {
         strategy,
         config: config || {
@@ -438,19 +458,19 @@ export class DatabaseStorage implements DatabaseStorage {
       throw error;
     }
   }
-  
+
   // Save memecoin strategy config
   async saveMemeStrategyConfig(config: MemeStrategyConfig): Promise<void> {
     try {
-      const strategies = await db.select()
-        .from(schema.strategies)
-        .where(eq(schema.strategies.name, "Memecoin Bracket Orders"));
-      
-      if (strategies.length === 0) {
+      const strategiesResult = await db.select()
+        .from(strategies)
+        .where(eq(strategies.name, "Memecoin Bracket Orders"));
+
+      if (strategiesResult.length === 0) {
         throw new Error("Memecoin strategy not found");
       }
-      
-      const strategy = strategies[0];
+
+      const strategy = strategiesResult[0];
       await this.saveStrategyConfig(strategy.id, 'memecoin', config);
     } catch (error) {
       console.error('Error saving memecoin strategy config:', error);
@@ -458,26 +478,26 @@ export class DatabaseStorage implements DatabaseStorage {
     }
   }
 
-  // Add this method along with getMemeStrategy method
+  // Get arbitrage strategy
   async getArbitrageStrategy(): Promise<{ strategy: any, config: ArbitrageStrategyConfig | null }> {
     try {
-      const strategies = await db.select()
-        .from(schema.strategies)
-        .where(eq(schema.strategies.name, "DEX Pool Arbitrage"));
-      
-      if (strategies.length === 0) {
-        return { 
-          strategy: null, 
-          config: null 
+      const strategyResults = await db.select()
+        .from(strategies)
+        .where(eq(strategies.name, "DEX Pool Arbitrage"));
+
+      if (strategyResults.length === 0) {
+        return {
+          strategy: null,
+          config: null
         };
       }
-      
-      const strategy = strategies[0];
+
+      const strategy = strategyResults[0];
       const config = await this.getStrategyConfig<ArbitrageStrategyConfig>(
-        strategy.id, 
+        strategy.id,
         'arbitrage'
       );
-      
+
       return {
         strategy,
         config: config || {
@@ -499,13 +519,13 @@ export class DatabaseStorage implements DatabaseStorage {
       throw error;
     }
   }
-  
+
   // Add a new method to save strategy configurations
   async saveArbitrageStrategyConfig(config: ArbitrageStrategyConfig): Promise<void> {
     try {
       // Make sure the arbitrage strategy exists first
       let strategy = await this.ensureArbitrageStrategyExists();
-      
+
       // Save config to strategy_configs table
       await this.saveStrategyConfig(strategy.id, 'arbitrage', config);
     } catch (error) {
@@ -513,20 +533,20 @@ export class DatabaseStorage implements DatabaseStorage {
       throw error;
     }
   }
-  
+
   // Helper method to ensure the strategy exists
   private async ensureArbitrageStrategyExists(): Promise<Strategy> {
     // Check if strategy already exists
     const existingStrategies = await db.select()
-      .from(schema.strategies)
-      .where(eq(schema.strategies.name, "DEX Pool Arbitrage"));
-    
+      .from(strategies)
+      .where(eq(strategies.name, "DEX Pool Arbitrage"));
+
     if (existingStrategies.length > 0) {
       return existingStrategies[0];
     }
-    
+
     // Strategy doesn't exist, create it
-    const [newStrategy] = await db.insert(schema.strategies)
+    const [newStrategy] = await db.insert(strategies)
       .values({
         name: "DEX Pool Arbitrage",
         rsiThreshold: "30/70",
@@ -537,24 +557,24 @@ export class DatabaseStorage implements DatabaseStorage {
         hasLimitOrders: false
       })
       .returning();
-    
+
     return newStrategy;
   }
 
   async getAIWallets(userAddress: string): Promise<AIWallet[]> {
     // Get all trading sessions for the user
     const sessions = await this.getTradingSessions(userAddress);
-    
+
     // Create a map to store the most recent session for each AI wallet
     const walletsMap = new Map();
-    
+
     sessions.forEach(session => {
       const existingWallet = walletsMap.get(session.aiWalletAddress);
-      
+
       // If this wallet doesn't exist in our map yet, or if this session is newer than the one we have
-      if (!existingWallet || 
-          (session.createdAt && existingWallet.createdAt && 
-           new Date(session.createdAt).getTime() > new Date(existingWallet.createdAt).getTime())) {
+      if (!existingWallet ||
+        (session.createdAt && existingWallet.createdAt &&
+          new Date(session.createdAt).getTime() > new Date(existingWallet.createdAt).getTime())) {
         walletsMap.set(session.aiWalletAddress, {
           id: session.id,
           userAddress: session.userAddress,
@@ -565,7 +585,7 @@ export class DatabaseStorage implements DatabaseStorage {
         });
       }
     });
-    
+
     // Convert map to array and sort by creation date (newest first)
     return Array.from(walletsMap.values())
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
@@ -579,7 +599,7 @@ export class DatabaseStorage implements DatabaseStorage {
       allocatedAmount: wallet.allocatedAmount,
       isActive: wallet.isActive
     });
-    
+
     // Return the session as an AI wallet
     return {
       id: newSession.id,
@@ -589,6 +609,26 @@ export class DatabaseStorage implements DatabaseStorage {
       createdAt: newSession.createdAt,
       isActive: newSession.isActive
     };
+  }
+
+  async getAIWalletPrivateKey(sessionId: number): Promise<{ privateKey: string } | null> {
+    const result = await db.select({
+      privateKey: sql<string>`private_key`
+    })
+      .from(sql`ai_wallets`)
+      .where(sql`session_id = ${sessionId}`);
+
+    return result.length > 0 ? { privateKey: result[0].privateKey } : null;
+  }
+
+  async getTokenAddress(symbol: string): Promise<string | null> {
+    const result = await db.select({
+      address: tokens.address
+    })
+      .from(tokens)
+      .where(eq(tokens.symbol, symbol));
+
+    return result.length > 0 ? result[0].address : null;
   }
 }
 

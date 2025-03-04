@@ -1,6 +1,15 @@
-import { getClient, SignRequestData } from "near-safe";
+import { getClient, MetaTransaction } from "near-safe";
 import { config } from "dotenv";
 import { Address } from "viem";
+
+// Extend base SignRequestData type from near-safe
+interface ExtendedSignRequestData {
+    chainId: number;
+    from: string;
+    metaTransactions: MetaTransaction[];
+    signUrl?: string;
+    nearAccountId?: string;
+}
 
 config(); // Load .env file
 
@@ -75,22 +84,24 @@ export function getSafeAddressForNearAccount(nearAccountId: string, chainId: num
  * Sign a transaction using near-safe's transaction manager
  */
 export async function signWithNearWallet(
-    transaction: SignRequestData,
+    transaction: ExtendedSignRequestData,
     nearAccountId: string
-): Promise<SignRequestData> {
+): Promise<ExtendedSignRequestData> {
     try {
         console.log(`Signing transaction with NEAR wallet for account ${nearAccountId}`);
 
-        // At this point, in a real implementation, you would use the near-safe SDK
-        // to sign the transaction with the NEAR wallet
-        // However, for now, we'll simply return the original transaction
-        console.log(`Transaction will be signed by NEAR account: ${nearAccountId}`);
+        // Return the transaction with a signature request URL
+        // This URL will be used by the frontend to redirect the user to sign with their NEAR wallet
+        const signUrl = `https://wallet.bitte.ai/sign-evm?evmTx=${encodeURIComponent(JSON.stringify(transaction))}`;
 
-        return transaction;
+        return {
+            ...transaction,
+            signUrl,
+            nearAccountId
+        };
     } catch (error: any) {
         console.error(`Error signing transaction with NEAR wallet:`, error);
-        // Return original transaction as fallback
-        return transaction;
+        throw new Error(`Failed to create signature request: ${error.message}`);
     }
 }
 
@@ -98,39 +109,31 @@ export async function signWithNearWallet(
  * Execute a transaction with NEAR wallet, deploying Safe if needed
  */
 export async function executeWithNearWallet(
-    transaction: SignRequestData,
+    transaction: ExtendedSignRequestData,
     nearAccountId: string,
     chainId: number
 ): Promise<any> {
     try {
-        console.log(`Executing transaction with NEAR wallet for account ${nearAccountId}`);
+        console.log(`Preparing transaction with NEAR wallet for account ${nearAccountId}`);
 
         // Get the Safe address for this NEAR account
         const safeAddress = getSafeAddressForNearAccount(nearAccountId, chainId);
 
-        // Check if Safe is deployed at this address
-        const isSafeDeployed = await checkIfSafeDeployed(safeAddress, chainId);
-
-        if (!isSafeDeployed) {
-            console.log(`Safe not deployed at ${safeAddress}, will deploy during transaction execution`);
-            // In a complete implementation, you would bundle the Safe deployment with the transaction
-        }
-
-        // Execute the transaction
-        console.log(`Executing transaction through Safe address: ${safeAddress}`);
-
-        // Mock transaction result
-        const txHash = `0x${Math.random().toString(16).substring(2)}`;
-        console.log(`Transaction executed with hash: ${txHash}`);
+        // Instead of executing directly, return the transaction data with the sign URL
+        // The frontend will handle redirecting the user to sign with their NEAR wallet
+        const signedTx = await signWithNearWallet(transaction, nearAccountId);
 
         return {
-            hash: txHash,
-            status: "success",
-            safeAddress
+            status: "pending_signature",
+            message: "Please sign the transaction with your NEAR wallet",
+            safeAddress,
+            nearAccountId,
+            chainId,
+            signUrl: signedTx.signUrl
         };
     } catch (error: any) {
-        console.error(`Error executing transaction with NEAR wallet:`, error);
-        throw new Error(`Failed to execute transaction: ${error.message}`);
+        console.error(`Error preparing NEAR wallet transaction:`, error);
+        throw new Error(`Failed to prepare transaction: ${error.message}`);
     }
 }
 
@@ -140,13 +143,9 @@ export async function executeWithNearWallet(
 async function checkIfSafeDeployed(safeAddress: Address, chainId: number): Promise<boolean> {
     try {
         console.log(`Checking if Safe is deployed at ${safeAddress} on chain ${chainId}`);
-
-        // In a production implementation, you would use the near-safe SDK or ethers/viem
-        // to check if the Safe wallet is deployed at this address
-        // For now, we'll simulate this check with a mock response
-
-        // Mock: Return false to indicate Safe is not deployed
-        return false;
+        const client = getClient(chainId);
+        const code = await client.getBytecode({ address: safeAddress });
+        return code !== undefined && code !== "0x";
     } catch (error) {
         console.error(`Error checking if Safe is deployed:`, error);
         return false;

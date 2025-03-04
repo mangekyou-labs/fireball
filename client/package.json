@@ -78,5 +78,6 @@
     "tailwindcss-animate": "^1.0.7",
     "typescript": "^5.2.2",
     "vite": "^5.1.0"
-  }
+  },
+  "packageManager": "pnpm@7.13.4+sha512.65a3f9f8f4735c8d20e0a8a353bcf1e218bb45425c49804921bf747be9724de432470f75fa9789a0503359aeb7fb87e3248cfa0aa63470d90feedad95e1e65f3"
 }
