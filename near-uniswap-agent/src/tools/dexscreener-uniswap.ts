@@ -7,6 +7,8 @@
 import { Address, getAddress } from "viem";
 import { Token } from "@uniswap/sdk-core";
 import { getToken, orderRequestFlow } from "./uniswap/orderFlow";
+import { getNearAccountId, getSafeAddressForNearAccount } from "./near-wallet";
+import { executeWithNearWallet } from "./near-wallet";
 
 // Base Chain ID is 8453
 const BASE_CHAIN_ID = 8453;
@@ -68,26 +70,41 @@ interface BuyDipParams {
   chainId: string;
   tokenAddress: string;
   sellTokenAddress: string;
-  sellAmount: string;
+  sellAmount: string | number;
   walletAddress: string;
+  forceSwap?: boolean;
 }
 
 /**
- * Checks if a token has had a significant price drop in the last 5 minutes
- * and triggers a buy if the price dropped more than 66.66%
+ * Monitors token price changes and triggers a buy when a significant dip is detected
  */
 export async function buyOnPriceDip(params: BuyDipParams) {
   try {
-    console.log("Starting buyOnPriceDip with params:", params);
+    console.log(`Starting buyOnPriceDip with params:`, params);
 
-    // Only support Base chain for now
-    if (params.chainId.toLowerCase() !== BASE_CHAIN_STRING) {
-      throw new Error("Only Base chain is supported for buy-dip functionality");
-    }
+    // Validate wallet address or use NEAR wallet
+    let walletAddress = params.walletAddress;
 
-    // Validate parameters
-    if (!params.tokenAddress || !params.sellTokenAddress || !params.sellAmount || !params.walletAddress) {
-      throw new Error("Missing required parameters");
+    // Check if we should use the NEAR wallet integration
+    if (process.env.USE_NEAR_WALLET === 'true') {
+      try {
+        // Get the NEAR account ID
+        const nearAccountId = getNearAccountId();
+        console.log(`Using NEAR wallet for account: ${nearAccountId}`);
+
+        // Get the chain ID for near-safe
+        const chainId = CHAIN_ID_MAP[params.chainId.toLowerCase()] || BASE_CHAIN_ID;
+
+        // Get the deterministic Safe address for the NEAR account
+        const safeAddress = getSafeAddressForNearAccount(nearAccountId, chainId);
+
+        // Use the Safe address instead of the provided wallet address
+        walletAddress = safeAddress;
+        console.log(`Using Safe address: ${walletAddress} for transactions`);
+      } catch (error) {
+        console.error("Error setting up NEAR wallet:", error);
+        console.log(`Falling back to provided wallet address: ${params.walletAddress}`);
+      }
     }
 
     // Normalize the sellAmount - handle both number or decimal string formats
@@ -147,20 +164,25 @@ export async function buyOnPriceDip(params: BuyDipParams) {
       }
     }
 
-    // If price decreased by more than 66.66%, trigger a buy
+    // If price decreased by more than 66.66% or forceSwap is true, trigger a buy
     // Price change is given as a percentage, so -66.66% would be -66.66
-    if (priceChangePercent <= -66.66) {
+    if (priceChangePercent <= -66.66 || params.forceSwap === true) {
+      // If we're forcing a swap, log that information
+      if (params.forceSwap === true) {
+        console.log(`FORCING SWAP regardless of price change (${priceChangePercent}%) due to forceSwap flag`);
+      }
+
       // Create a swap transaction
       const transaction = await createSwapTransaction({
         chainId: CHAIN_ID_MAP[params.chainId.toLowerCase()],
         sellTokenAddress: params.sellTokenAddress,
         buyTokenAddress: params.tokenAddress,
-        sellAmount: normalizedSellAmount,
-        walletAddress: params.walletAddress
+        sellAmount: String(normalizedSellAmount),
+        walletAddress: walletAddress
       });
 
       return {
-        result: `Price dip detected for ${pairData.baseToken.symbol}! ${timeframe} price change: ${priceChangePercent.toFixed(2)}%. Triggered a buy transaction.`,
+        result: `${params.forceSwap ? 'Forced swap' : 'Price dip detected'} for ${pairData.baseToken.symbol}! ${timeframe} price change: ${priceChangePercent.toFixed(2)}%. Triggered a buy transaction.`,
         dip: true,
         priceChange: priceChangePercent,
         marketCap: pairData.marketCap || 0,
@@ -254,7 +276,24 @@ async function createSwapTransaction({
     };
 
     // Get the transaction data
-    return await orderRequestFlow(quoteRequest);
+    const txData = await orderRequestFlow(quoteRequest);
+
+    // Check if we should use NEAR wallet for execution
+    if (process.env.USE_NEAR_WALLET === 'true') {
+      console.log('Using NEAR wallet for transaction execution');
+      const nearAccountId = getNearAccountId();
+
+      // Execute with NEAR wallet - this will deploy the Safe if needed
+      const result = await executeWithNearWallet(txData.transaction, nearAccountId, chainId);
+
+      // Return the result with transaction hash
+      return {
+        ...txData,
+        executionResult: result
+      };
+    }
+
+    return txData;
   } catch (error) {
     console.error("Error creating swap transaction:", error);
     throw error;

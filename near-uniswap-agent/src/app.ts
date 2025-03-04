@@ -4,9 +4,10 @@ import { config } from "dotenv";
 import { healthRouter } from "./routes/health";
 import { uniswapRouter } from "./routes/uniswap";
 import { balancesRouter } from "./routes/balances";
+import { nearWalletRouter } from "./routes/near-wallet";
 import { pluginData } from "./plugin";
 import dexscreenerRoutes from "./routes";
-import dexscreenerUniswapRoutes from "./routes/dexscreener-uniswap";
+import { dexscreenerUniswapRouter } from "./routes/dexscreener-uniswap";
 
 config(); // Load .env file
 
@@ -20,12 +21,14 @@ app.use(express.json());
 app.use("/api/health", healthRouter);
 app.use("/api/tools/uniswap", uniswapRouter);
 app.use("/api/tools/balances", balancesRouter);
+// Add NEAR wallet routes
+app.use("/api/tools/near-wallet", nearWalletRouter);
 // Add DexScreener routes
 app.use("/api/tools/dexscreener", dexscreenerRoutes);
 // Add DexScreener-Uniswap integration routes
-app.use("/api/tools/dexscreener-uniswap", dexscreenerUniswapRoutes);
+app.use("/api/tools/dexscreener-uniswap", dexscreenerUniswapRouter);
 // Add a direct /swap route for AI compatibility
-app.use("/api/swap", dexscreenerUniswapRoutes);
+app.use("/api/swap", dexscreenerUniswapRouter);
 
 // Expose plugin manifest at /.well-known/ai-plugin.json
 app.get("/.well-known/ai-plugin.json", (_, res) => {

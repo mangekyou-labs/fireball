@@ -43,8 +43,12 @@ The application requires the following environment variables:
 ## Example Prompt
 
 Use example prompt to buy the dip of your coin
-
-- I want to buy the dip for token 0x4200000000000000000000000000000000000006 on Base. Use 5 USDC (0x833589fcd6edb6e08f4c7c32d4f71b54bda02913) from my wallet 0xYourWalletAddress
+- Get token price for 0xe6241e7fCc13574A9E79b807EFF0FA7D27a0401F on base
+- Is it dipped yet?
+- What's the Safe address for my NEAR wallet yoshitoke.near on Base chain?
+- Show me the balance of my NEAR wallet yoshitoke.near on Base chain.
+- I want to swap 5 USDC to the token 0xe6241e7fCc13574A9E79b807EFF0FA7D27a0401F on Base chain using my NEAR wallet yoshitoke.near
+- I want to buy the dip for token 0xe6241e7fCc13574A9E79b807EFF0FA7D27a0401F on Base. Use 1 USDC from my near wallet yoshitoke.near
 
 ## Learn More
 

@@ -24,7 +24,7 @@ export const pluginData = {
       description:
         "An assistant that generates transaction data for Uniswap V3 Interactions",
       instructions:
-        "Encodes transactions as signature requests on EVM networks. This assistant is only for EVM networks. Passes the the transaction fields of the response to generate-evm-tx tool for signing and displays the meta content of the response to the user after signing. For selling native assets, such as ETH, xDAI, POL, BNB it uses 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE as the sellToken. It does not infer the chainId. Do not infer the token decimals. Use Token Units for sellAmountBeforeFee. Uses token symbols for sellToken and buyToken unless addresses are provided. Always passes evmAddress as the safeAddress on any request requiring safeAddress.",
+        "Encodes transactions as signature requests on EVM networks. This assistant is only for EVM networks. Passes the the transaction fields of the response to generate-evm-tx tool for signing and displays the meta content of the response to the user after signing. For selling native assets, such as ETH, xDAI, POL, BNB it uses 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE as the sellToken. It does not infer the chainId. Do not infer the token decimals. Use Token Units for sellAmountBeforeFee. Uses token symbols for sellToken and buyToken unless addresses are provided. Always passes evmAddress as the safeAddress on any request requiring safeAddress. NEAR WALLET INTEGRATION: If a user mentions their NEAR wallet (e.g., 'yoshitoke.near'), use the NEAR wallet integration. For direct token swaps, use the /api/tools/near-wallet/swap endpoint with parameters: chainId, buyToken, sellToken, and sellAmountBeforeFee. For the /buy-dip endpoint, set walletAddress=0x0 to automatically use their NEAR account. For the /balances endpoint, use 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE as the safeAddress. The backend will automatically generate a Safe address for the NEAR account. When a user asks to swap tokens using their NEAR wallet, always use the /api/tools/near-wallet/swap endpoint directly. BUY-DIP FEATURE: When a user wants to buy the dip for a token, use a two-step process: 1) First call /api/tools/dexscreener-uniswap/buy-dip to get token data and check if there's a significant dip (66.66% or more), 2) Show this data to the user, and 3) If the user wants to proceed with the swap, call /api/tools/dexscreener-uniswap/execute-swap to actually execute the transaction.",
       tools: [{ type: "generate-evm-tx" }],
       image: `${url}/uniswap.svg`,
     },
@@ -61,7 +61,7 @@ export const pluginData = {
       get: {
         tags: ["balances"],
         summary: "Get Token Balances",
-        description: "Returns token balances for the connected wallet",
+        description: "Returns token balances for the connected wallet. If USE_NEAR_WALLET=true is set in the environment, the balances will be fetched for the Safe address associated with your NEAR account. You can use 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE as a placeholder for safeAddress when using NEAR wallet integration.",
         operationId: "get-balances",
         parameters: [
           { $ref: "#/components/parameters/chainId" },
@@ -201,8 +201,8 @@ export const pluginData = {
     "/api/tools/dexscreener-uniswap/buy-dip": {
       post: {
         tags: ["dexscreener-uniswap"],
-        summary: "Buy tokens on significant price dips",
-        description: "Monitors token price on Base network and triggers a swap if price drops by 66.66% or more within the last 5 minutes",
+        summary: "Check token price and display DexScreener data",
+        description: "Displays token price data from DexScreener, including current price, price changes, liquidity, and volume. Checks if price has dropped by 66.66% or more within the last hour but does NOT automatically execute any transaction. This endpoint is purely informational and shows the token data first. If USE_NEAR_WALLET=true is set in the environment, wallet address detection will use your NEAR account. For NEAR wallet users, you can set walletAddress=0x0 and the backend will automatically detect your NEAR account.",
         operationId: "dexscreener-uniswap-buy-dip",
         requestBody: {
           required: true,
@@ -233,8 +233,13 @@ export const pluginData = {
                   },
                   walletAddress: {
                     type: "string",
-                    description: "Wallet address for the swap transaction (must be a valid Ethereum address starting with 0x)",
+                    description: "Wallet address for the swap transaction. For NEAR wallet users, you can set this to '0x0' and the backend will automatically use your NEAR account.",
                     example: "0x1111111111111111111111111111111111111111"
+                  },
+                  forceSwap: {
+                    type: "boolean",
+                    description: "Force the swap regardless of price change (for testing purposes)",
+                    example: true
                   }
                 },
                 required: ["chainId", "tokenAddress", "sellTokenAddress", "sellAmount", "walletAddress"]
@@ -247,6 +252,16 @@ export const pluginData = {
                     "sellTokenAddress": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
                     "sellAmount": "5000000",
                     "walletAddress": "0x1111111111111111111111111111111111111111"
+                  }
+                },
+                "Buy token with NEAR wallet": {
+                  value: {
+                    "chainId": "base",
+                    "tokenAddress": "0xe6241e7fCc13574A9E79b807EFF0FA7D27a0401F",
+                    "sellTokenAddress": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+                    "sellAmount": "5",
+                    "walletAddress": "0x0",
+                    "forceSwap": true
                   }
                 }
               }
@@ -302,6 +317,96 @@ export const pluginData = {
                     error: {
                       type: "string",
                       example: "Missing required parameter or unsupported chain"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tools/dexscreener-uniswap/execute-swap": {
+      post: {
+        tags: ["dexscreener-uniswap"],
+        summary: "Execute a token swap transaction",
+        description: "Explicitly executes a swap transaction after the user has reviewed token data from the buy-dip endpoint. This endpoint actually performs the transaction. If USE_NEAR_WALLET=true is set in the environment, the transaction will use the NEAR wallet integration.",
+        operationId: "dexscreener-uniswap-execute-swap",
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  chainId: {
+                    type: "string",
+                    description: "Chain ID (only 'base' is supported)",
+                    example: "base"
+                  },
+                  tokenAddress: {
+                    type: "string",
+                    description: "Target token address to buy (must be a valid ERC20 token address on Base)",
+                    example: "0x4200000000000000000000000000000000000006"
+                  },
+                  sellTokenAddress: {
+                    type: "string",
+                    description: "Token address to sell (must be a valid ERC20 token address on Base)",
+                    example: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" // USDC on Base
+                  },
+                  sellAmount: {
+                    type: "string",
+                    description: "Amount of sell token to use for the swap (in token base units, e.g. for 5 USDC with 6 decimals, use '5000000')",
+                    example: "5000000" // 5 USDC with 6 decimals
+                  },
+                  walletAddress: {
+                    type: "string",
+                    description: "Wallet address for the swap transaction. For NEAR wallet users, you can set this to '0x0' and the backend will automatically use your NEAR account.",
+                    example: "0x1111111111111111111111111111111111111111"
+                  }
+                },
+                required: ["chainId", "tokenAddress", "sellTokenAddress", "sellAmount", "walletAddress"]
+              }
+            }
+          }
+        },
+        responses: {
+          "200": {
+            description: "Swap transaction result",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    message: {
+                      type: "string",
+                      description: "Success message"
+                    },
+                    transaction: {
+                      type: "object",
+                      description: "Transaction data",
+                      properties: {
+                        tx: {
+                          type: "object",
+                          description: "Uniswap transaction data"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            description: "Bad request",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    error: {
+                      type: "string",
+                      example: "Missing required parameter"
                     }
                   }
                 }
@@ -563,6 +668,157 @@ export const pluginData = {
                   properties: {
                     error: { type: "string" },
                     message: { type: "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tools/near-wallet/safe-address": {
+      get: {
+        tags: ["near-wallet"],
+        summary: "Get Safe Address for NEAR Account",
+        description: "Returns the Safe address associated with a NEAR account on a specific chain. This endpoint is useful for checking the Safe address that will be used for transactions when using the NEAR wallet integration.",
+        operationId: "get-near-safe-address",
+        parameters: [
+          { $ref: "#/components/parameters/chainId" }
+        ],
+        responses: {
+          "200": {
+            description: "Safe address information",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    nearAccountId: {
+                      type: "string",
+                      description: "The NEAR account ID",
+                      example: "yoshitoke.near"
+                    },
+                    safeAddress: {
+                      type: "string",
+                      description: "The Safe address for the NEAR account",
+                      example: "0xded0d75e60132f8837c892dbf7e19cba6497a0f7"
+                    },
+                    chainId: {
+                      type: "number",
+                      description: "The chain ID",
+                      example: 8453
+                    },
+                    isDeployed: {
+                      type: "boolean",
+                      description: "Whether the Safe is deployed",
+                      example: false
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            description: "Bad request",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    error: {
+                      type: "string",
+                      example: "Missing required parameter or NEAR wallet not configured"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tools/near-wallet/swap": {
+      post: {
+        tags: ["near-wallet"],
+        summary: "Create and execute a Uniswap swap using NEAR wallet",
+        description: "Create and execute a Uniswap swap transaction using the NEAR wallet integration. This endpoint is used for direct swapping without checking for price dips.",
+        operationId: "near-wallet-swap",
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  chainId: {
+                    oneOf: [
+                      { type: "string", description: "Chain ID string (e.g., 'base')" },
+                      { type: "number", description: "Chain ID number (e.g., 8453)" }
+                    ],
+                    description: "Chain ID (only Base/8453 is fully supported)",
+                    example: 8453
+                  },
+                  buyToken: {
+                    type: "string",
+                    description: "Token address to buy",
+                    example: "0xe6241e7fCc13574A9E79b807EFF0FA7D27a0401F"
+                  },
+                  sellToken: {
+                    type: "string",
+                    description: "Token address to sell",
+                    example: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+                  },
+                  sellAmountBeforeFee: {
+                    type: "string",
+                    description: "Amount of sell token to use (as decimal string or in base units)",
+                    example: "5"
+                  }
+                },
+                required: ["chainId", "buyToken", "sellToken", "sellAmountBeforeFee"]
+              }
+            }
+          }
+        },
+        responses: {
+          "200": {
+            description: "Successful transaction",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    success: {
+                      type: "boolean",
+                      description: "Whether the transaction was successful"
+                    },
+                    nearAccountId: {
+                      type: "string",
+                      description: "The NEAR account ID used for the transaction"
+                    },
+                    safeAddress: {
+                      type: "string",
+                      description: "The Safe address used for the transaction"
+                    },
+                    transaction: {
+                      type: "object",
+                      description: "Transaction details"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            description: "Error creating transaction",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    error: {
+                      type: "string",
+                      description: "Error message"
+                    }
                   }
                 }
               }
