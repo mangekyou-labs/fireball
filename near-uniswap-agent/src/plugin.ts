@@ -203,7 +203,7 @@ export const pluginData = {
         tags: ["dexscreener-uniswap"],
         summary: "Buy tokens on significant price dips",
         description: "Monitors token price on Base network and triggers a swap if price drops by 66.66% or more within the last 5 minutes",
-        operationId: "buy-dip",
+        operationId: "dexscreener-uniswap-buy-dip",
         requestBody: {
           required: true,
           content: {
@@ -303,6 +303,266 @@ export const pluginData = {
                       type: "string",
                       example: "Missing required parameter or unsupported chain"
                     }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tools/dexscreener-uniswap/test": {
+      post: {
+        tags: ["dexscreener-uniswap"],
+        summary: "Test endpoint for API functionality",
+        description: "Use this endpoint to test if the API is working correctly",
+        operationId: "dexscreener-uniswap-test",
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  testParam: {
+                    type: "string",
+                    description: "Any test parameter",
+                    example: "test value"
+                  }
+                }
+              }
+            }
+          }
+        },
+        responses: {
+          "200": {
+            description: "Test response",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    received: {
+                      type: "object",
+                      description: "The parameters received in the request"
+                    },
+                    message: {
+                      type: "string",
+                      example: "Test endpoint successful"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/swap": {
+      post: {
+        operationId: "swap",
+        summary: "Swap tokens on Uniswap",
+        description: "Execute a swap transaction on Uniswap. If the token shows a significant price dip (>66.66%), the swap will be executed.",
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  buyToken: {
+                    type: "string",
+                    description: "The address of the token to buy"
+                  },
+                  sellToken: {
+                    type: "string",
+                    description: "The address of the token to sell"
+                  },
+                  sellAmountBeforeFee: {
+                    type: "string",
+                    description: "The amount to sell (in base units)"
+                  },
+                  safeAddress: {
+                    type: "string",
+                    description: "The wallet address to use for the swap"
+                  },
+                  chainId: {
+                    oneOf: [
+                      { type: "string", enum: ["base"] },
+                      { type: "number", enum: [8453] }
+                    ],
+                    description: "The chain ID to use (only Base supported)"
+                  }
+                },
+                required: ["buyToken", "sellToken", "sellAmountBeforeFee", "safeAddress"]
+              }
+            }
+          }
+        },
+        responses: {
+          200: {
+            description: "Success response",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    success: {
+                      type: "boolean",
+                      description: "Whether the swap was executed"
+                    },
+                    message: {
+                      type: "string",
+                      description: "Details about the swap result"
+                    },
+                    transactionHash: {
+                      type: "string",
+                      description: "The transaction hash (if swap was executed)"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          400: {
+            description: "Bad request",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    meta: {
+                      type: "object",
+                      properties: {
+                        message: {
+                          type: "string",
+                          description: "Error message"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tools/dexscreener-uniswap/token-price": {
+      get: {
+        operationId: "get-dexscreener-uniswap-token-price",
+        summary: "Get token price information",
+        description: "Fetches the current price and market data for a specific token on a blockchain",
+        parameters: [
+          {
+            name: "tokenAddress",
+            in: "query",
+            description: "The address of the token to check",
+            required: true,
+            schema: {
+              type: "string"
+            }
+          },
+          {
+            name: "chainId",
+            in: "query",
+            description: "The chain ID (default: base)",
+            required: false,
+            schema: {
+              type: "string",
+              default: "base"
+            }
+          }
+        ],
+        responses: {
+          "200": {
+            description: "Token price information successfully retrieved",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    result: {
+                      type: "object",
+                      properties: {
+                        token: {
+                          type: "object",
+                          properties: {
+                            address: { type: "string" },
+                            symbol: { type: "string" },
+                            name: { type: "string" }
+                          }
+                        },
+                        price: {
+                          type: "object",
+                          properties: {
+                            usd: { type: "string" },
+                            nativeToken: { type: "string" }
+                          }
+                        },
+                        priceChange: {
+                          type: "object",
+                          description: "Price change in different time periods"
+                        },
+                        liquidity: {
+                          type: "object",
+                          description: "Liquidity information"
+                        },
+                        volume: {
+                          type: "object",
+                          description: "Volume information"
+                        },
+                        pair: {
+                          type: "object",
+                          properties: {
+                            address: { type: "string" },
+                            dex: { type: "string" },
+                            url: { type: "string" }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            description: "Bad request - missing required parameters",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    error: { type: "string" }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            description: "Token not found",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    error: { type: "string" },
+                    message: { type: "string" }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            description: "Internal server error",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    error: { type: "string" },
+                    message: { type: "string" }
                   }
                 }
               }

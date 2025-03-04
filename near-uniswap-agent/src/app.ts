@@ -24,6 +24,8 @@ app.use("/api/tools/balances", balancesRouter);
 app.use("/api/tools/dexscreener", dexscreenerRoutes);
 // Add DexScreener-Uniswap integration routes
 app.use("/api/tools/dexscreener-uniswap", dexscreenerUniswapRoutes);
+// Add a direct /swap route for AI compatibility
+app.use("/api/swap", dexscreenerUniswapRoutes);
 
 // Expose plugin manifest at /.well-known/ai-plugin.json
 app.get("/.well-known/ai-plugin.json", (_, res) => {
