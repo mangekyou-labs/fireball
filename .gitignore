@@ -8,3 +8,4 @@ vite.config.ts.*
 .env
 
 uniswap-examples
+swap-client

@@ -213,31 +213,42 @@ export const pluginData = {
                 properties: {
                   chainId: {
                     type: "string",
-                    description: "Chain ID (only Base is supported)",
+                    description: "Chain ID (only 'base' is supported)",
                     example: "base"
                   },
                   tokenAddress: {
                     type: "string",
-                    description: "Target token address to monitor and potentially buy",
-                    example: "0xabcd1234abcd1234abcd1234abcd1234abcd1234"
+                    description: "Target token address to monitor and potentially buy (must be a valid ERC20 token address on Base)",
+                    example: "0x4200000000000000000000000000000000000006"
                   },
                   sellTokenAddress: {
                     type: "string",
-                    description: "Token address to sell when buying the dip",
+                    description: "Token address to sell when buying the dip (must be a valid ERC20 token address on Base)",
                     example: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" // USDC on Base
                   },
                   sellAmount: {
                     type: "string",
-                    description: "Amount of sell token to use for the swap",
-                    example: "10000000" // 10 USDC with 6 decimals
+                    description: "Amount of sell token to use for the swap (in token base units, e.g. for 5 USDC with 6 decimals, use '5000000')",
+                    example: "5000000" // 5 USDC with 6 decimals
                   },
                   walletAddress: {
                     type: "string",
-                    description: "Wallet address for the swap transaction",
-                    example: "0x0000000000000000000000000000000000000000"
+                    description: "Wallet address for the swap transaction (must be a valid Ethereum address starting with 0x)",
+                    example: "0x1111111111111111111111111111111111111111"
                   }
                 },
                 required: ["chainId", "tokenAddress", "sellTokenAddress", "sellAmount", "walletAddress"]
+              },
+              examples: {
+                "Buy WETH on dip": {
+                  value: {
+                    "chainId": "base",
+                    "tokenAddress": "0x4200000000000000000000000000000000000006",
+                    "sellTokenAddress": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+                    "sellAmount": "5000000",
+                    "walletAddress": "0x1111111111111111111111111111111111111111"
+                  }
+                }
               }
             }
           }

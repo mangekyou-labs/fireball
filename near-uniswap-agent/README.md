@@ -44,7 +44,7 @@ The application requires the following environment variables:
 
 Use example prompt to buy the dip of your coin
 
-- I want to buy the dip for token 0x4200000000000000000000000000000000000006 on Base. Use 5 USDC (0xYourSAFEWalletAddress) from my wallet yourwallet.near
+- I want to buy the dip for token 0x4200000000000000000000000000000000000006 on Base. Use 5 USDC (0x833589fcd6edb6e08f4c7c32d4f71b54bda02913) from my wallet 0xYourWalletAddress
 
 ## Learn More
 
