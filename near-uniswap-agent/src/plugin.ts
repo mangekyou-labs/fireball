@@ -827,6 +827,134 @@ export const pluginData = {
         }
       }
     },
+    "/api/tools/dexscreener-uniswap/near-buy-dip": {
+      post: {
+        tags: ["dexscreener-uniswap"],
+        summary: "Check token price using NEAR wallet",
+        description: "Special endpoint for NEAR wallet users. Displays token price data from DexScreener, including current price, price changes, liquidity, and volume. Automatically uses your NEAR account for wallet address detection. This endpoint is purely informational and shows the token data first.",
+        operationId: "dexscreener-uniswap-near-buy-dip",
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  chainId: {
+                    type: "string",
+                    description: "Chain ID (only 'base' is supported)",
+                    example: "base"
+                  },
+                  tokenAddress: {
+                    type: "string",
+                    description: "Target token address to monitor (must be a valid ERC20 token address on Base)",
+                    example: "0x4200000000000000000000000000000000000006"
+                  },
+                  sellTokenAddress: {
+                    type: "string",
+                    description: "Token address to sell (defaults to USDC on Base if not specified)",
+                    example: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" // USDC on Base
+                  },
+                  sellAmount: {
+                    type: "string",
+                    description: "Amount of sell token to use (defaults to 1000000 which is 1 USDC with 6 decimals)",
+                    example: "1000000" // 1 USDC with 6 decimals
+                  },
+                  forceSwap: {
+                    type: "boolean",
+                    description: "Force the swap regardless of price change (for testing purposes)",
+                    example: false
+                  }
+                },
+                required: ["tokenAddress"]
+              },
+              examples: {
+                "Check token on Base with NEAR wallet": {
+                  value: {
+                    "chainId": "base",
+                    "tokenAddress": "0x4200000000000000000000000000000000000006"
+                  }
+                }
+              }
+            }
+          }
+        },
+        responses: {
+          "200": {
+            description: "Token data retrieved successfully",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    message: {
+                      type: "string",
+                      description: "Message about the token price change"
+                    },
+                    tokenData: {
+                      type: "object",
+                      description: "Token data from DexScreener"
+                    },
+                    nearInfo: {
+                      type: "object",
+                      description: "Information about the NEAR wallet"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            description: "Bad request - missing required parameters",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    error: {
+                      type: "string",
+                      description: "Error message"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            description: "Token not found on DexScreener",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    error: {
+                      type: "string",
+                      description: "Error message"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            description: "Internal server error",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    error: {
+                      type: "string",
+                      description: "Error message"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
   },
   components: {
     parameters: {

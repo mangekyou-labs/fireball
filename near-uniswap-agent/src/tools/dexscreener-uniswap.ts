@@ -84,12 +84,15 @@ export async function buyOnPriceDip(params: BuyDipParams) {
 
     // Validate wallet address or use NEAR wallet
     let walletAddress = params.walletAddress;
+    let isUsingNearWallet = false;
+    let nearAccountId = null;
 
     // Check if we should use the NEAR wallet integration
     if (process.env.USE_NEAR_WALLET === 'true') {
       try {
         // Get the NEAR account ID
-        const nearAccountId = getNearAccountId();
+        nearAccountId = getNearAccountId();
+        isUsingNearWallet = true;
         console.log(`Using NEAR wallet for account: ${nearAccountId}`);
 
         // Get the chain ID for near-safe
@@ -128,8 +131,27 @@ export async function buyOnPriceDip(params: BuyDipParams) {
       }
     }
 
+    // CRITICAL: Always fetch and return token data first
+    console.log(`Fetching token data from DexScreener for ${params.tokenAddress} on chain ${params.chainId}...`);
+
     // Call DexScreener API to get token pair data
     const pairData = await fetchPairData(params.chainId, params.tokenAddress);
+
+    // Format token data for response
+    const tokenData = {
+      address: params.tokenAddress,
+      symbol: pairData.baseToken.symbol,
+      name: pairData.baseToken.name,
+      priceUsd: pairData.priceUsd,
+      priceNative: pairData.priceNative,
+      priceChange: pairData.priceChange || {},
+      liquidity: pairData.liquidity || {},
+      volume: pairData.volume || {},
+      pairAddress: pairData.pairAddress,
+      pairUrl: pairData.url
+    };
+
+    console.log("DexScreener data fetched successfully:", JSON.stringify(tokenData, null, 2));
 
     // If no price change data is available, we can't make a determination
     if (!pairData.priceChange) {
@@ -138,7 +160,10 @@ export async function buyOnPriceDip(params: BuyDipParams) {
         dip: false,
         priceChange: 0,
         marketCap: pairData.marketCap || 0,
-        currentPrice: pairData.priceUsd ? parseFloat(pairData.priceUsd) : 0
+        currentPrice: pairData.priceUsd ? parseFloat(pairData.priceUsd) : 0,
+        isUsingNearWallet,
+        nearAccountId,
+        tokenData
       };
     }
 
@@ -187,7 +212,10 @@ export async function buyOnPriceDip(params: BuyDipParams) {
         priceChange: priceChangePercent,
         marketCap: pairData.marketCap || 0,
         currentPrice: pairData.priceUsd ? parseFloat(pairData.priceUsd) : 0,
-        transaction
+        transaction,
+        isUsingNearWallet,
+        nearAccountId,
+        tokenData
       };
     } else {
       return {
@@ -195,7 +223,10 @@ export async function buyOnPriceDip(params: BuyDipParams) {
         dip: false,
         priceChange: priceChangePercent,
         marketCap: pairData.marketCap || 0,
-        currentPrice: pairData.priceUsd ? parseFloat(pairData.priceUsd) : 0
+        currentPrice: pairData.priceUsd ? parseFloat(pairData.priceUsd) : 0,
+        isUsingNearWallet,
+        nearAccountId,
+        tokenData
       };
     }
   } catch (error) {
@@ -283,8 +314,15 @@ async function createSwapTransaction({
       console.log('Using NEAR wallet for transaction execution');
       const nearAccountId = getNearAccountId();
 
+      // Convert the transaction data to ExtendedSignRequestData format
+      const extendedTxData = {
+        ...txData.transaction,
+        from: walletAddress,
+        metaTransactions: [] // Initialize with empty array
+      };
+
       // Execute with NEAR wallet - this will deploy the Safe if needed
-      const result = await executeWithNearWallet(txData.transaction, nearAccountId, chainId);
+      const result = await executeWithNearWallet(extendedTxData, nearAccountId, chainId);
 
       // Return the result with transaction hash
       return {
