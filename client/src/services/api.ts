@@ -1,16 +1,36 @@
+// Helper function to determine the base URL for API requests
+const getApiBaseUrl = (): string => {
+  // In development, use the proxy (empty string means use relative URLs)
+  if (import.meta.env.DEV) {
+    return '';
+  }
+
+  // In production, use the full URL from environment variable
+  return import.meta.env.VITE_API_BASE_URL || '';
+};
+
 export async function apiRequest(method: string, endpoint: string, data?: any) {
   try {
-    // Ensure endpoint starts with /api/ if it's a relative path
-    let normalizedEndpoint = endpoint;
-    if (!endpoint.startsWith('http')) {
-      normalizedEndpoint = endpoint.startsWith('/')
+    // Build the URL based on environment
+    let url: string;
+    if (import.meta.env.DEV) {
+      // In development, use the proxy with /api prefix
+      url = endpoint.startsWith('/')
         ? `/api${endpoint}`
         : `/api/${endpoint}`;
+    } else {
+      // In production, use the full URL
+      const baseUrl = getApiBaseUrl();
+      url = `${baseUrl}/${endpoint.replace(/^\//, '')}`;
     }
 
-    console.log(`Making ${method} request to ${normalizedEndpoint}`);
+    // Add a timestamp to prevent caching issues
+    const cacheBuster = `_t=${Date.now()}`;
+    const urlWithCacheBuster = url.includes('?') ? `${url}&${cacheBuster}` : `${url}?${cacheBuster}`;
 
-    const response = await fetch(normalizedEndpoint, {
+    console.log(`Making ${method} request to ${urlWithCacheBuster}`);
+
+    const response = await fetch(urlWithCacheBuster, {
       method,
       headers: {
         'Content-Type': 'application/json',
@@ -19,6 +39,7 @@ export async function apiRequest(method: string, endpoint: string, data?: any) {
         'Expires': '0'
       },
       body: data ? JSON.stringify(data) : undefined,
+      credentials: 'include'
     });
 
     if (!response.ok) {
