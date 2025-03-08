@@ -61,14 +61,24 @@ app.use(express.urlencoded({ extended: false }));
 
 // Add CORS headers
 app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', '*');
+  const allowedOrigins = [
+    'http://localhost:5173',  // Local development frontend
+    'https://fireball-exchange.vercel.app'  // Production frontend
+  ];
+
+  const origin = req.headers.origin;
+  if (origin && allowedOrigins.includes(origin)) {
+    res.header('Access-Control-Allow-Origin', origin);
+  }
+
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
   res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
-  
+  res.header('Access-Control-Allow-Credentials', 'true');
+
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
   }
-  
+
   next();
 });
 
@@ -106,18 +116,18 @@ app.use((req, res, next) => {
 app.post("/api/logs", async (req: Request, res: Response) => {
   try {
     const { sessionId, activityType, details, isManualIntervention } = req.body;
-    
+
     if (!sessionId) {
       return res.status(400).json({ error: "Session ID is required" });
     }
-    
+
     const log = await storage.createWalletActivityLog({
       sessionId,
       activityType: activityType || "UNKNOWN",
       details: details || {},
       isManualIntervention: isManualIntervention || false
     });
-    
+
     res.status(201).json(log);
   } catch (error) {
     console.error("Error creating log:", error);
@@ -128,11 +138,11 @@ app.post("/api/logs", async (req: Request, res: Response) => {
 app.get("/api/logs/:sessionId", async (req: Request, res: Response) => {
   try {
     const sessionId = parseInt(req.params.sessionId);
-    
+
     if (isNaN(sessionId)) {
       return res.status(400).json({ error: "Invalid session ID" });
     }
-    
+
     const logs = await storage.getWalletActivityLogs(sessionId);
     res.json(logs);
   } catch (error) {
@@ -144,11 +154,11 @@ app.get("/api/logs/:sessionId", async (req: Request, res: Response) => {
 app.delete("/api/logs/clear/:sessionId", async (req: Request, res: Response) => {
   try {
     const sessionId = parseInt(req.params.sessionId);
-    
+
     if (isNaN(sessionId)) {
       return res.status(400).json({ error: "Invalid session ID" });
     }
-    
+
     await storage.clearWalletActivityLogs(sessionId);
     res.json({ success: true });
   } catch (error) {

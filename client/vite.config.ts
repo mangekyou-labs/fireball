@@ -8,10 +8,14 @@ export default defineConfig(({ mode }) => {
   // Set the third parameter to '' to load all env regardless of the `VITE_` prefix.
   const env = loadEnv(mode, process.cwd(), '')
 
-  // Now we can access env variables using env.VITE_API_BASE_URL
-  const apiBaseUrl = env.VITE_API_BASE_URL || 'http://localhost:5000'
+  // Determine if we're in development mode
+  const isDev = mode === 'development';
 
-  console.log(`API Base URL: ${apiBaseUrl}`)
+  // API base URL - in development we use localhost, in production we use the env variable
+  const apiBaseUrl = isDev ? 'http://localhost:5000' : env.VITE_API_BASE_URL;
+
+  console.log(`Mode: ${mode}`);
+  console.log(`API Base URL: ${apiBaseUrl}`);
 
   return {
     plugins: [react()],
@@ -22,14 +26,14 @@ export default defineConfig(({ mode }) => {
       },
     },
     server: {
-      proxy: {
+      proxy: isDev ? {
         '/api': {
           target: apiBaseUrl,
           changeOrigin: true,
           secure: false,
           rewrite: (path) => path.replace(/^\/api/, '')
         }
-      }
+      } : undefined
     },
     define: {
       // Make environment variables available to the client code

@@ -45,7 +45,8 @@ async function getDexRouterContract(signer: ethers.Signer): Promise<ethers.Contr
 async function getMarketData(pair: string) {
     try {
         const [tokenA, tokenB] = pair.split('/');
-        const response = await fetch(`/api/pool/price-data?tokenA=${tokenA}&tokenB=${tokenB}`);
+        const apiBaseUrl = process.env.API_BASE_URL || 'http://localhost:5000';
+        const response = await fetch(`${apiBaseUrl}/api/pool/price-data?tokenA=${tokenA}&tokenB=${tokenB}`);
         if (!response.ok) {
             throw new Error(`Failed to fetch market data: ${response.statusText}`);
         }
@@ -59,8 +60,8 @@ async function getMarketData(pair: string) {
 async function analyzeMarket(pair: string, strategyType: string) {
     try {
         const marketData = await getMarketData(pair);
-
-        const response = await fetch("/api/ai/analyze", {
+        const apiBaseUrl = process.env.API_BASE_URL || 'http://localhost:5000';
+        const response = await fetch(`${apiBaseUrl}/api/ai/analyze`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({

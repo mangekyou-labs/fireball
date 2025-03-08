@@ -201,6 +201,23 @@ export class PoolService {
         Current Liquidity: ${position.liquidity}
       `);
 
+      // Get current pool price and check if it's in range
+      const currentTick = position.pool.tickCurrent;
+      const currentPrice = position.pool.token0Price;
+      console.log(`Current pool tick: ${currentTick}`);
+      console.log(`Current pool price: ${currentPrice.toFixed(6)} ${position.pool.token1.symbol} per ${position.pool.token0.symbol}`);
+
+      const inRange = currentTick >= position.tickLower && currentTick < position.tickUpper;
+      console.log(`Position is ${inRange ? 'in' : 'out of'} range`);
+
+      if (!inRange) {
+        if (currentTick < position.tickLower) {
+          console.log(`Current price is below range - position will be 100% ${position.pool.token1.symbol}`);
+        } else {
+          console.log(`Current price is above range - position will be 100% ${position.pool.token0.symbol}`);
+        }
+      }
+
       // Approve tokens
       await this.approveToken(position.pool.token0, amount0);
       await this.approveToken(position.pool.token1, amount1);
@@ -216,6 +233,15 @@ export class PoolService {
       });
 
       console.log(`New position liquidity: ${newPosition.liquidity.toString()}`);
+      console.log(`Calculated amounts needed: token0=${newPosition.amount0.toFixed()} token1=${newPosition.amount1.toFixed()}`);
+
+      // Check if one of the tokens is not being used
+      if (newPosition.amount0.equalTo(0)) {
+        console.log(`Note: No ${position.pool.token0.symbol} will be used (single-sided liquidity)`);
+      }
+      if (newPosition.amount1.equalTo(0)) {
+        console.log(`Note: No ${position.pool.token1.symbol} will be used (single-sided liquidity)`);
+      }
 
       // Create increase options
       const increaseOptions: IncreaseOptions = {

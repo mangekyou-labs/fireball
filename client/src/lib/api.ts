@@ -5,24 +5,40 @@ interface APIRequestOptions {
   params?: Record<string, string>;
 }
 
-export async function apiRequest<T>(endpoint: string, options: APIRequestOptions = {}): Promise<T> {
-  const { method = 'GET', body, params } = options;
-
-  // Ensure endpoint starts with /api/ if it's a relative path
-  let normalizedEndpoint = endpoint;
-  if (!endpoint.startsWith('http')) {
-    normalizedEndpoint = endpoint.startsWith('/')
-      ? `/api${endpoint}`
-      : `/api/${endpoint}`;
+// Helper function to determine the base URL for API requests
+const getApiBaseUrl = (): string => {
+  // In development, use the proxy (empty string means use relative URLs)
+  if (import.meta.env.DEV) {
+    return '';
   }
 
-  let url = normalizedEndpoint;
+  // In production, use the full URL from environment variable
+  return import.meta.env.VITE_API_BASE_URL || '';
+};
+
+export async function apiRequest<T>(endpoint: string, options: APIRequestOptions = {}): Promise<T> {
+  const { method = 'GET', body, params } = options;
+  const baseUrl = getApiBaseUrl();
+
+  // Build the URL based on environment
+  let url: string;
+  if (import.meta.env.DEV) {
+    // In development, use the proxy with /api prefix
+    url = endpoint.startsWith('/')
+      ? `/api${endpoint}`
+      : `/api/${endpoint}`;
+  } else {
+    // In production, use the full URL
+    url = `${baseUrl}/${endpoint.replace(/^\//, '')}`;
+  }
+
+  // Add query parameters if provided
   if (params) {
     const searchParams = new URLSearchParams();
     Object.entries(params).forEach(([key, value]) => {
       if (value) searchParams.append(key, value);
     });
-    url = `${url}?${searchParams.toString()}`;
+    url = `${url}${url.includes('?') ? '&' : '?'}${searchParams.toString()}`;
   }
 
   console.log(`Making ${method} request to ${url}`);

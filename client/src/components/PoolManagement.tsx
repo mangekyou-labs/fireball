@@ -181,6 +181,8 @@ export function PoolManagement({ provider, signer, address }: PoolManagementProp
       console.log(`Token1: ${position.token1}`);
       console.log(`Amount0: ${modifyAmount0}`);
       console.log(`Amount1: ${modifyAmount1}`);
+      console.log(`Tick Lower: ${position.tickLower}`);
+      console.log(`Tick Upper: ${position.tickUpper}`);
 
       // Get token decimals
       const token0Decimals = getTokenDecimals(position.token0);
@@ -195,6 +197,20 @@ export function PoolManagement({ provider, signer, address }: PoolManagementProp
 
       console.log(`Amount0 in Wei: ${amount0InWei}`);
       console.log(`Amount1 in Wei: ${amount1InWei}`);
+
+      // Show a warning if the position might be single-sided
+      const lowerPrice = 1.0001 ** position.tickLower;
+      const upperPrice = 1.0001 ** position.tickUpper;
+      console.log(`Position price range: ${lowerPrice.toFixed(6)} - ${upperPrice.toFixed(6)}`);
+
+      // Warn user about potential single-sided liquidity
+      if (parseFloat(modifyAmount0) > 0 && parseFloat(modifyAmount1) > 0) {
+        toast({
+          title: 'Note about Liquidity',
+          description: 'Depending on the current price and position range, one of your tokens might not be used. This is normal for Uniswap V3 positions.',
+          duration: 6000,
+        });
+      }
 
       const result = await poolService.increaseLiquidity(
         selectedPositionId,
