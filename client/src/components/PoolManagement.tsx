@@ -59,7 +59,7 @@ export function PoolManagement({ provider, signer, address }: PoolManagementProp
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
   const [positions, setPositions] = useState<PositionInfo[]>([]);
-  
+
   // New Position State
   const [selectedTokenA, setSelectedTokenA] = useState<TokenInfo | null>(null);
   const [selectedTokenB, setSelectedTokenB] = useState<TokenInfo | null>(null);
@@ -176,13 +176,25 @@ export function PoolManagement({ provider, signer, address }: PoolManagementProp
         throw new Error('Position not found');
       }
 
+      console.log(`Increasing liquidity for position ${selectedPositionId}:`);
+      console.log(`Token0: ${position.token0}`);
+      console.log(`Token1: ${position.token1}`);
+      console.log(`Amount0: ${modifyAmount0}`);
+      console.log(`Amount1: ${modifyAmount1}`);
+
       // Get token decimals
       const token0Decimals = getTokenDecimals(position.token0);
       const token1Decimals = getTokenDecimals(position.token1);
 
+      console.log(`Token0 Decimals: ${token0Decimals}`);
+      console.log(`Token1 Decimals: ${token1Decimals}`);
+
       // Convert user-friendly amounts to token units
       const amount0InWei = ethers.utils.parseUnits(modifyAmount0, token0Decimals).toString();
       const amount1InWei = ethers.utils.parseUnits(modifyAmount1, token1Decimals).toString();
+
+      console.log(`Amount0 in Wei: ${amount0InWei}`);
+      console.log(`Amount1 in Wei: ${amount1InWei}`);
 
       const result = await poolService.increaseLiquidity(
         selectedPositionId,
@@ -191,16 +203,23 @@ export function PoolManagement({ provider, signer, address }: PoolManagementProp
         parseFloat(slippage)
       );
 
+      console.log(`Increase liquidity result:`, result);
+
       if (result.success) {
         toast({
           title: 'Success',
           description: 'Liquidity increased successfully',
         });
-        loadPositions();
+
+        // Wait a moment before reloading positions to allow blockchain to update
+        setTimeout(() => {
+          loadPositions();
+        }, 5000);
       } else {
         throw new Error(result.error || 'Failed to increase liquidity');
       }
     } catch (error) {
+      console.error('Error in handleIncreaseLiquidity:', error);
       toast({
         title: 'Error',
         description: error instanceof Error ? error.message : 'Failed to increase liquidity',
@@ -276,18 +295,29 @@ export function PoolManagement({ provider, signer, address }: PoolManagementProp
 
   // Helper function to get token decimals
   const getTokenDecimals = (tokenAddress: string): number => {
+    console.log(`Getting decimals for token address: ${tokenAddress}`);
+    console.log(`WETH address: ${WETH.address}`);
+    console.log(`WBTC address: ${WBTC.address}`);
+    console.log(`USDC address: ${USDC.address}`);
+    console.log(`USDT address: ${USDT.address}`);
+
     // Check common token addresses
     if (tokenAddress.toLowerCase() === WETH.address.toLowerCase()) {
+      console.log(`Token identified as WETH with 18 decimals`);
       return 18; // ETH has 18 decimals
     } else if (tokenAddress.toLowerCase() === WBTC.address.toLowerCase()) {
+      console.log(`Token identified as WBTC with 18 decimals`);
       return 18; // WBTC has 18 decimals in this implementation
-    } else if (
-      tokenAddress.toLowerCase() === USDC.address.toLowerCase() ||
-      tokenAddress.toLowerCase() === USDT.address.toLowerCase()
-    ) {
-      return 18; // USDC and USDT have 18 decimals in this implementation
+    } else if (tokenAddress.toLowerCase() === USDC.address.toLowerCase()) {
+      console.log(`Token identified as USDC with 18 decimals`);
+      return 18; // USDC has 18 decimals in this implementation
+    } else if (tokenAddress.toLowerCase() === USDT.address.toLowerCase()) {
+      console.log(`Token identified as USDT with 18 decimals`);
+      return 18; // USDT has 18 decimals in this implementation
     }
+
     // Default to 18 decimals for other tokens
+    console.log(`Token not identified, using default 18 decimals`);
     return 18;
   };
 
@@ -307,7 +337,7 @@ export function PoolManagement({ provider, signer, address }: PoolManagementProp
             onAmountAChange={setAmount0}
             onAmountBChange={setAmount1}
           />
-          
+
           <div className="text-sm text-muted-foreground mb-2">
             Enter amounts in standard units (e.g., 1 = 1 ETH, 1 = 1 USDC)
           </div>

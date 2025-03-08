@@ -7,10 +7,15 @@ interface APIRequestOptions {
 
 export async function apiRequest<T>(endpoint: string, options: APIRequestOptions = {}): Promise<T> {
   const { method = 'GET', body, params } = options;
-  
-  // Ensure endpoint starts with / if it's a relative path
-  const normalizedEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
-  
+
+  // Ensure endpoint starts with /api/ if it's a relative path
+  let normalizedEndpoint = endpoint;
+  if (!endpoint.startsWith('http')) {
+    normalizedEndpoint = endpoint.startsWith('/')
+      ? `/api${endpoint}`
+      : `/api/${endpoint}`;
+  }
+
   let url = normalizedEndpoint;
   if (params) {
     const searchParams = new URLSearchParams();
@@ -21,14 +26,14 @@ export async function apiRequest<T>(endpoint: string, options: APIRequestOptions
   }
 
   console.log(`Making ${method} request to ${url}`);
-  
+
   try {
     // Add a timestamp to prevent caching issues
     const cacheBuster = `_t=${Date.now()}`;
     const urlWithCacheBuster = url.includes('?') ? `${url}&${cacheBuster}` : `${url}?${cacheBuster}`;
-    
+
     console.log(`Final request URL with cache buster: ${urlWithCacheBuster}`);
-    
+
     const response = await fetch(urlWithCacheBuster, {
       method,
       headers: {
@@ -42,11 +47,11 @@ export async function apiRequest<T>(endpoint: string, options: APIRequestOptions
     });
 
     console.log(`Response status: ${response.status}`);
-    
+
     if (!response.ok) {
       const errorText = await response.text();
       console.error(`API request failed with status ${response.status}: ${errorText}`);
-      
+
       let errorJson;
       try {
         errorJson = JSON.parse(errorText);
@@ -55,7 +60,7 @@ export async function apiRequest<T>(endpoint: string, options: APIRequestOptions
         // If it's not JSON, use the text directly
         throw new Error(`API request failed with status ${response.status}: ${errorText}`);
       }
-      
+
       throw new Error(errorJson.error || errorJson.message || 'API request failed');
     }
 

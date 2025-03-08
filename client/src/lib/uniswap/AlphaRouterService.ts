@@ -218,7 +218,8 @@ export const getPool = async (tokenA: Token, tokenB: Token): Promise<Pool> => {
   }
 };
 
-interface SwapTransaction {
+// Type definitions
+export interface SwapTransaction {
   data: string;
   to: string;
   value: BigNumber;
@@ -542,4 +543,4 @@ export const checkDirectPoolLiquidity = async (tokenA: Token, tokenB: Token): Pr
     console.error(`Error checking direct pool liquidity for ${tokenA.symbol}/${tokenB.symbol}:`, error);
     return { exists: false };
   }
-}; 
+};

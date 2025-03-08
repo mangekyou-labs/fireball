@@ -118,7 +118,7 @@ export class PoolService {
 
       // Get exact amounts needed for position
       const { amount0: amount0Required, amount1: amount1Required } = position.mintAmounts;
-      
+
       // Approve tokens
       await this.approveToken(tokenA, amount0Required.toString());
       await this.approveToken(tokenB, amount1Required.toString());
@@ -145,7 +145,7 @@ export class PoolService {
       });
 
       const receipt = await tx.wait();
-      
+
       // Parse position ID from logs
       const positionManagerInterface = new ethers.utils.Interface([
         'event IncreaseLiquidity(uint256 indexed tokenId, uint128 liquidity, uint256 amount0, uint256 amount1)',
@@ -154,7 +154,7 @@ export class PoolService {
 
       const transferLog = receipt.logs.find(
         log => log.address.toLowerCase() === NONFUNGIBLE_POSITION_MANAGER_ADDRESS.toLowerCase() &&
-        log.topics[0] === positionManagerInterface.getEventTopic('Transfer')
+          log.topics[0] === positionManagerInterface.getEventTopic('Transfer')
       );
 
       if (!transferLog) {
@@ -187,11 +187,19 @@ export class PoolService {
         throw new Error('Wallet not connected');
       }
 
+      console.log(`Increasing liquidity for position ${positionId} with amounts: ${amount0} and ${amount1}`);
+
       const position = await this.getPosition(positionId);
       const walletAddress = await this.signer.getAddress();
 
-      // Calculate the amounts needed for the position
-      const { amount0: amount0CurrencyAmount, amount1: amount1CurrencyAmount } = position.mintAmounts;
+      console.log(`Position details: 
+        Token0: ${position.pool.token0.symbol} (${position.pool.token0.address})
+        Token1: ${position.pool.token1.symbol} (${position.pool.token1.address})
+        Fee: ${position.pool.fee}
+        Tick Lower: ${position.tickLower}
+        Tick Upper: ${position.tickUpper}
+        Current Liquidity: ${position.liquidity}
+      `);
 
       // Approve tokens
       await this.approveToken(position.pool.token0, amount0);
@@ -207,6 +215,8 @@ export class PoolService {
         useFullPrecision: true,
       });
 
+      console.log(`New position liquidity: ${newPosition.liquidity.toString()}`);
+
       // Create increase options
       const increaseOptions: IncreaseOptions = {
         deadline: Math.floor(Date.now() / 1000) + 60 * 20,
@@ -220,18 +230,29 @@ export class PoolService {
         increaseOptions
       );
 
-      // Send transaction
+      console.log(`Transaction value: ${value}`);
+
+      // Send transaction with higher gas limit for complex operations
       const tx = await this.signer.sendTransaction({
         data: calldata,
         to: NONFUNGIBLE_POSITION_MANAGER_ADDRESS,
         value: ethers.BigNumber.from(value),
-        gasLimit: ethers.utils.hexlify(1000000),
+        gasLimit: ethers.utils.hexlify(2000000), // Increased gas limit
       });
 
-      await tx.wait();
+      console.log(`Transaction sent: ${tx.hash}`);
+
+      const receipt = await tx.wait();
+      console.log(`Transaction confirmed: ${receipt.transactionHash}`);
+
+      // Verify the transaction was successful
+      if (receipt.status === 0) {
+        throw new Error('Transaction failed');
+      }
 
       return { success: true };
     } catch (error) {
+      console.error('Error increasing liquidity:', error);
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Unknown error occurred',
@@ -392,10 +413,10 @@ export class PoolService {
 
     // Check current allowance
     const currentAllowance = await tokenContract.allowance(
-      walletAddress, 
+      walletAddress,
       NONFUNGIBLE_POSITION_MANAGER_ADDRESS
     );
-    
+
     // Only approve if current allowance is less than needed amount
     if (ethers.BigNumber.from(currentAllowance).lt(ethers.BigNumber.from(amount))) {
       console.log(`Approving ${token.symbol} for amount ${amount}`);
@@ -414,9 +435,14 @@ export class PoolService {
     );
 
     const position = await positionManagerContract.positions(positionId);
+
+    // Get the correct token decimals based on the token address
+    const token0Decimals = this.getTokenDecimals(position.token0);
+    const token1Decimals = this.getTokenDecimals(position.token1);
+
     const pool = await this.getPool(
-      new Token(parseInt(import.meta.env.VITE_CHAIN_ID), position.token0, 18),
-      new Token(parseInt(import.meta.env.VITE_CHAIN_ID), position.token1, 18),
+      new Token(parseInt(import.meta.env.VITE_CHAIN_ID), position.token0, token0Decimals),
+      new Token(parseInt(import.meta.env.VITE_CHAIN_ID), position.token1, token1Decimals),
       position.fee
     );
 
@@ -426,6 +452,30 @@ export class PoolService {
       tickLower: position.tickLower,
       tickUpper: position.tickUpper,
     });
+  }
+
+  // Helper function to get token decimals based on token address
+  private getTokenDecimals(tokenAddress: string): number {
+    // Convert addresses to lowercase for comparison
+    const lowerCaseAddress = tokenAddress.toLowerCase();
+    const usdcAddress = import.meta.env.VITE_USDC_ADDRESS.toLowerCase();
+    const usdtAddress = import.meta.env.VITE_USDT_ADDRESS.toLowerCase();
+    const wbtcAddress = import.meta.env.VITE_WBTC_ADDRESS.toLowerCase();
+    const wethAddress = import.meta.env.VITE_WETH_ADDRESS.toLowerCase();
+
+    // Return the correct decimals for each token
+    if (lowerCaseAddress === usdcAddress) {
+      return 18; // Using 18 for testnet USDC as defined in AlphaRouterService
+    } else if (lowerCaseAddress === usdtAddress) {
+      return 18; // Using 18 for testnet USDT as defined in AlphaRouterService
+    } else if (lowerCaseAddress === wbtcAddress) {
+      return 18; // Using 18 for testnet WBTC as defined in AlphaRouterService
+    } else if (lowerCaseAddress === wethAddress) {
+      return 18; // WETH has 18 decimals
+    }
+
+    // Default to 18 decimals for unknown tokens
+    return 18;
   }
 }
 
