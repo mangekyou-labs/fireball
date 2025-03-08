@@ -23,6 +23,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { LimitOrderForm } from '@/components/LimitOrderForm';
 import { LimitOrderList } from '@/components/LimitOrderList';
 import { PoolManagement } from '@/components/PoolManagement';
+import { TokenMinter } from '@/components/TokenMinter';
+import { NativeTokenWrapper } from '@/components/NativeTokenWrapper';
 import { useWallet } from '@/contexts/WalletContext';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Token } from '@uniswap/sdk-core';
@@ -49,7 +51,7 @@ const AVAILABLE_TOKENS = [
   { symbol: 'USDT', token: USDT },
 ];
 
-// Custom debounce hook
+// Custom hook for debouncing values
 function useDebounce<T>(value: T, delay: number): T {
   const [debouncedValue, setDebouncedValue] = useState<T>(value);
 
@@ -67,234 +69,155 @@ function useDebounce<T>(value: T, delay: number): T {
 }
 
 export default function Swap() {
-  const { toast } = useToast();
-  const { provider, signer, address, isConnected } = useWallet();
-  const [slippageAmount, setSlippageAmount] = useState(2);
-  const [deadlineMinutes, setDeadlineMinutes] = useState(10);
-  const [showSettings, setShowSettings] = useState(false);
-
-  const [inputAmount, setInputAmount] = useState('');
-  const [debouncedInputAmount, setDebouncedInputAmount] = useState('');
-  const [outputAmount, setOutputAmount] = useState('');
-  const [transaction, setTransaction] = useState<any>();
-  const [loading, setLoading] = useState(false);
-  const [ratio, setRatio] = useState<string>();
-
-  // Token selection state
+  // State variables
   const [inputToken, setInputToken] = useState<Token>(WBTC);
   const [outputToken, setOutputToken] = useState<Token>(USDC);
-
-  // Use debounce for input amount
-  const debouncedAmount = useDebounce(inputAmount, 500);
-
-  // Effect to trigger price calculation when debounced input changes
-  useEffect(() => {
-    if (debouncedAmount !== debouncedInputAmount) {
-      setDebouncedInputAmount(debouncedAmount);
-      if (debouncedAmount && address) {
-        getSwapPrice(debouncedAmount);
-      }
-    }
-  }, [debouncedAmount, address]);
-
-  // Token balances
-  const [tokenBalances, setTokenBalances] = useState<Record<string, string>>({
-    WBTC: '0',
-    WETH: '0',
-    USDC: '0',
-    USDT: '0',
-  });
-
+  const [inputAmount, setInputAmount] = useState('');
+  const [outputAmount, setOutputAmount] = useState('');
+  const [transaction, setTransaction] = useState<ethers.providers.TransactionRequest>();
+  const [loading, setLoading] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [slippageAmount, setSlippageAmount] = useState(2.0);
+  const [deadlineMinutes, setDeadlineMinutes] = useState(10);
+  const [tokenBalances, setTokenBalances] = useState<Record<string, string>>({});
+  const [ratio, setRatio] = useState<string>();
   const [priceImpact, setPriceImpact] = useState<number | null>(null);
   const [poolLiquidity, setPoolLiquidity] = useState<string | null>(null);
   const [liquidityError, setLiquidityError] = useState<string | null>(null);
 
-  // Initialize contracts and get balances
+  // Hooks
+  const { toast } = useToast();
+  const { address, isConnected, provider, signer } = useWallet();
+  const debouncedInputAmount = useDebounce(inputAmount, 500);
+
+  // Effect to get balances when wallet is connected
   useEffect(() => {
-    if (address) {
+    if (isConnected && address) {
       getBalances(address);
     }
-  }, [address, inputToken, outputToken]);
+  }, [isConnected, address]);
 
-  // Get token balances
+  // Effect to get swap price when input amount changes
+  useEffect(() => {
+    if (debouncedInputAmount) {
+      getSwapPrice(debouncedInputAmount);
+    }
+  }, [debouncedInputAmount, inputToken, outputToken]);
+
+  // Function to get token balances
   const getBalances = async (address: string) => {
-    if (!address) return;
-
     try {
-      console.log("Fetching balances for address:", address);
+      if (!provider) return;
 
-      // Get balances for all tokens
-      const wbtcContract = getWbtcContract();
-      const usdcContract = getUsdcContract();
-      const wethContract = getWethContract();
-      const usdtContract = getUsdtContract();
+      const wbtcContract = await getWbtcContract();
+      const wbtcBalance = await wbtcContract.balanceOf(address);
 
-      const [wbtcBalance, usdcBalance, wethBalance, usdtBalance] = await Promise.all([
-        wbtcContract.balanceOf(address).catch((err: unknown) => {
-          console.error("Error fetching WBTC balance:", err);
-          return BigNumber.from(0);
-        }),
-        usdcContract.balanceOf(address).catch((err: unknown) => {
-          console.error("Error fetching USDC balance:", err);
-          return BigNumber.from(0);
-        }),
-        wethContract.balanceOf(address).catch((err: unknown) => {
-          console.error("Error fetching WETH balance:", err);
-          return BigNumber.from(0);
-        }),
-        usdtContract.balanceOf(address).catch((err: unknown) => {
-          console.error("Error fetching USDT balance:", err);
-          return BigNumber.from(0);
-        })
-      ]);
+      const wethContract = await getWethContract();
+      const wethBalance = await wethContract.balanceOf(address);
 
-      const formattedBalances = {
-        WBTC: ethers.utils.formatUnits(wbtcBalance, WBTC.decimals),
-        USDC: ethers.utils.formatUnits(usdcBalance, USDC.decimals),
-        WETH: ethers.utils.formatUnits(wethBalance, WETH.decimals),
-        USDT: ethers.utils.formatUnits(usdtBalance, USDT.decimals)
-      };
+      const usdcContract = await getUsdcContract();
+      const usdcBalance = await usdcContract.balanceOf(address);
 
-      console.log("Token balances:", formattedBalances);
-      setTokenBalances(formattedBalances);
+      const usdtContract = await getUsdtContract();
+      const usdtBalance = await usdtContract.balanceOf(address);
+
+      const ethBalance = await provider.getBalance(address);
+
+      setTokenBalances({
+        WBTC: ethers.utils.formatEther(wbtcBalance),
+        WETH: ethers.utils.formatEther(wethBalance),
+        USDC: ethers.utils.formatEther(usdcBalance),
+        USDT: ethers.utils.formatEther(usdtBalance),
+        ETH: ethers.utils.formatEther(ethBalance)
+      });
     } catch (error) {
-      console.error("Error fetching balances:", error);
+      console.error('Error fetching balances:', error);
     }
   };
 
+  // Function to get swap price
   const getSwapPrice = async (value: string) => {
-    if (!value || parseFloat(value) <= 0 || !address) return;
-
-    setLoading(true);
-    setOutputAmount('');
-    setTransaction(undefined);
-    setRatio(undefined);
-    setPriceImpact(null);
-    setPoolLiquidity(null);
-    setLiquidityError(null);
+    if (!value || parseFloat(value) === 0 || !isConnected) {
+      setOutputAmount('');
+      setTransaction(undefined);
+      setRatio(undefined);
+      setPriceImpact(null);
+      setPoolLiquidity(null);
+      setLiquidityError(null);
+      return;
+    }
 
     try {
-      // First, directly check if the pool exists and has liquidity
-      console.log("Directly checking pool liquidity...");
-      const poolCheck = await checkDirectPoolLiquidity(inputToken, outputToken);
+      setLoading(true);
 
-      if (!poolCheck.exists) {
-        setLiquidityError(`No liquidity pool found for ${inputToken.symbol}/${outputToken.symbol}`);
-        toast({
-          title: "Liquidity Error",
-          description: `No liquidity pool found for ${inputToken.symbol}/${outputToken.symbol}`,
-          variant: "destructive"
-        });
-        setLoading(false);
-        return;
-      }
-
-      if (poolCheck.liquidity === "0") {
-        setLiquidityError(`Pool exists but has zero liquidity for ${inputToken.symbol}/${outputToken.symbol}`);
-        toast({
-          title: "Liquidity Error",
-          description: `Pool exists but has zero liquidity for ${inputToken.symbol}/${outputToken.symbol}`,
-          variant: "destructive"
-        });
-        setLoading(false);
-        return;
-      }
-
-      console.log(`Pool found with liquidity: ${poolCheck.liquidity}`);
-      setPoolLiquidity(`${poolCheck.liquidity ? ethers.utils.formatUnits(poolCheck.liquidity, 18) : '0'} LP tokens`);
-
-      const deadline = Math.floor(Date.now() / 1000) + 300; // 5 minutes
-      const [transaction, outputAmount, ratio] = await getPrice(
-        value,
+      // Check if there's direct pool liquidity
+      const liquidityCheck = await checkDirectPoolLiquidity(
         inputToken,
-        outputToken,
-        slippageAmount,
-        deadline,
-        address
+        outputToken
       );
 
-      if (transaction && outputAmount && ratio) {
-        setTransaction(transaction);
-        setOutputAmount(outputAmount);
-        setRatio(ratio);
-
-        // Calculate price impact and get pool liquidity
-        try {
-          const pool = await getPool(inputToken, outputToken);
-          const inputValueInUSD = parseFloat(value) * (inputToken.symbol === 'WETH' ? 3000 :
-            inputToken.symbol === 'WBTC' ? 60000 : 1);
-          const outputValueInUSD = parseFloat(outputAmount) * (outputToken.symbol === 'WETH' ? 3000 :
-            outputToken.symbol === 'WBTC' ? 60000 : 1);
-
-          // Calculate liquidity in USD terms (rough estimate)
-          // Pool.liquidity is a property, not a function
-          const liquidity = parseFloat(pool.liquidity.toString()) / 10 ** 18;
-          const liquidityInUSD = liquidity * (pool.token0.symbol === 'WETH' ? 3000 :
-            pool.token0.symbol === 'WBTC' ? 60000 : 1);
-
-          setPoolLiquidity(`$${liquidityInUSD.toLocaleString(undefined, { maximumFractionDigits: 2 })}`);
-
-          // Calculate price impact as percentage of liquidity
-          const impact = (inputValueInUSD / liquidityInUSD) * 100;
-          setPriceImpact(impact);
-
-          // Set warning if price impact is too high or liquidity is too low
-          if (impact > 5) {
-            setLiquidityError(`High price impact (${impact.toFixed(2)}%) may cause slippage.`);
-          } else if (liquidityInUSD < inputValueInUSD * 10) {
-            setLiquidityError("Pool has low liquidity relative to trade size.");
-          } else {
-            // Clear any previous error if everything looks good
-            setLiquidityError(null);
-          }
-        } catch (error) {
-          console.error("Error calculating price impact:", error);
-          setLiquidityError("Could not calculate price impact. Pool may have insufficient liquidity.");
-        }
+      if (!liquidityCheck.hasLiquidity) {
+        setLiquidityError(liquidityCheck.message);
+        setOutputAmount('');
+        setTransaction(undefined);
+        setRatio(undefined);
+        setPriceImpact(null);
+        setPoolLiquidity(null);
+        return;
       } else {
-        toast({
-          title: "Error",
-          description: "Failed to get swap price. This may be due to insufficient liquidity.",
-          variant: "destructive"
-        });
-        setLiquidityError("Failed to calculate swap. Pool may have insufficient liquidity.");
+        setLiquidityError(null);
+        setPoolLiquidity(liquidityCheck.liquidityFormatted);
+      }
+
+      // Get price and transaction
+      const { amountOut, transaction: tx, priceImpact: impact } = await getPrice(
+        inputToken,
+        outputToken,
+        value,
+        slippageAmount,
+        deadlineMinutes,
+        address || ethers.constants.AddressZero
+      );
+
+      setOutputAmount(amountOut);
+      setTransaction(tx);
+      setPriceImpact(impact);
+
+      // Calculate and set the exchange ratio
+      if (parseFloat(value) > 0 && parseFloat(amountOut) > 0) {
+        const ratio = (parseFloat(amountOut) / parseFloat(value)).toFixed(6);
+        setRatio(ratio);
       }
     } catch (error) {
-      console.error("Error getting swap price:", error);
+      console.error('Error getting swap price:', error);
       toast({
-        title: "Error",
-        description: "Failed to get swap price. This may be due to insufficient liquidity.",
-        variant: "destructive"
+        title: 'Error',
+        description: 'Failed to get swap price. Please try again.',
+        variant: 'destructive',
       });
-      setLiquidityError("Failed to calculate swap. Pool may have insufficient liquidity.");
+      setOutputAmount('');
+      setTransaction(undefined);
+      setRatio(undefined);
     } finally {
       setLoading(false);
     }
   };
 
+  // Function to execute swap
   const executeSwap = async () => {
-    if (!signer || !transaction) return;
-
-    // Check for liquidity warnings first
-    if (liquidityError) {
+    if (!isConnected || !signer || !transaction) {
       toast({
-        title: "Liquidity Warning",
-        description: `${liquidityError} Do you still want to proceed?`,
-        variant: "destructive",
-        duration: 10000, // Show for 10 seconds
+        title: 'Wallet not connected',
+        description: 'Please connect your wallet to execute a swap.',
+        variant: 'destructive',
       });
-
-      // Give the user a chance to see the warning
-      const proceed = window.confirm(`${liquidityError}\n\nDo you still want to proceed with the swap?`);
-      if (!proceed) {
-        return;
-      }
+      return;
     }
 
     setLoading(true);
     try {
       toast({
-        title: "Starting Swap Process",
+        title: 'Preparing Swap',
         description: `You will need to approve two transactions: first to approve the token, then to execute the swap. Please be patient and confirm both transactions.`,
         duration: 10000, // Show for 10 seconds
       });
@@ -337,54 +260,14 @@ export default function Swap() {
 
       toast({
         title: "Success",
-        description: `Swap of ${inputAmount} ${inputToken.symbol} to ${outputAmount} ${outputToken.symbol} executed successfully!`,
+        description: `Swap transaction successful!`,
       });
-
-      // Reset form
-      setInputAmount('');
-      setOutputAmount('');
-      setTransaction(undefined);
-      setRatio(undefined);
-      setPriceImpact(null);
-      setPoolLiquidity(null);
-      setLiquidityError(null);
-
-      // Refresh balances
-      if (address) {
-        await getBalances(address);
-      }
-    } catch (error: unknown) {
-      console.error("Swap failed:", error);
-
-      // Extract meaningful error message
-      let errorMessage = "Failed to execute swap";
-
-      if (error instanceof Error && error.message) {
-        const msg = error.message;
-        console.log("Error message:", msg);
-
-        if (msg.includes("user rejected")) {
-          errorMessage = "Transaction was rejected by user";
-        } else if (msg.includes("insufficient funds")) {
-          errorMessage = "Insufficient funds for this transaction";
-        } else if (msg.includes("gas required exceeds allowance")) {
-          errorMessage = "Gas required exceeds your ETH balance";
-        } else if (msg.includes("Failed to approve")) {
-          errorMessage = "Token approval failed. Please try again.";
-        } else if (msg.includes("Swap transaction failed")) {
-          errorMessage = msg;
-        } else if (msg.includes("CALL_EXCEPTION")) {
-          errorMessage = "Transaction reverted on the blockchain. This could be due to insufficient liquidity in the pool, price impact too high, or other contract constraints. Try with a smaller amount or different tokens.";
-        } else if (msg.includes("liquidity")) {
-          errorMessage = "Insufficient liquidity in the pool for this swap. Try with a smaller amount or different tokens.";
-        }
-      }
-
+    } catch (error) {
+      console.error("Error executing swap:", error);
       toast({
-        title: "Swap Failed",
-        description: errorMessage,
-        variant: "destructive",
-        duration: 10000, // Show for 10 seconds
+        title: "Error",
+        description: "An error occurred while executing the swap. Please try again later.",
+        variant: "destructive"
       });
     } finally {
       setLoading(false);
@@ -464,10 +347,11 @@ export default function Swap() {
     <div className="container mx-auto px-4 py-8">
       <Card className="max-w-xl mx-auto">
         <Tabs defaultValue="market" className="w-full">
-          <TabsList className="grid w-full grid-cols-3">
+          <TabsList className="grid w-full grid-cols-4">
             <TabsTrigger value="market">Market Order</TabsTrigger>
             <TabsTrigger value="limit">Limit Order</TabsTrigger>
             <TabsTrigger value="pool">Pool</TabsTrigger>
+            <TabsTrigger value="utilities">Faucet</TabsTrigger>
           </TabsList>
 
           <TabsContent value="market">
@@ -655,6 +539,17 @@ export default function Swap() {
               signer={signer ?? undefined}
               address={address ?? undefined}
             />
+          </TabsContent>
+
+          <TabsContent value="utilities">
+            <div className="p-6 space-y-6">
+              <h2 className="text-lg font-semibold mb-4">Token Utilities</h2>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <TokenMinter />
+                <NativeTokenWrapper />
+              </div>
+            </div>
           </TabsContent>
         </Tabs>
       </Card>

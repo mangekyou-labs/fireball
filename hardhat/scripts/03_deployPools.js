@@ -17,7 +17,7 @@ const artifacts = {
 
 const { Contract, BigNumber } = require("ethers")
 const bn = require('bignumber.js')
-const {promisify} = require("util");
+const { promisify } = require("util");
 const fs = require("fs");
 bn.config({ EXPONENTIAL_AT: 999999, DECIMAL_PLACES: 40 })
 
@@ -65,31 +65,31 @@ async function deployPool(token0, token1, fee, price) {
 }
 
 async function main() {
-  const usdtUsdc500 = await deployPool(TETHER_ADDRESS, USDC_ADDRESS,500, encodePriceSqrt(1, 1))
+  const usdtUsdc500 = await deployPool(TETHER_ADDRESS, USDC_ADDRESS, 500, encodePriceSqrt(1, 1))
 
   let addresses = [
     `USDT_USDC_500=${usdtUsdc500}`
   ]
 
-  const wbtcUsdc1000 = await deployPool(WRAPPED_BITCOIN_ADDRESS, USDC_ADDRESS, 1000, encodePriceSqrt(114700, 1))
+  // const wbtcUsdc1000 = await deployPool(WRAPPED_BITCOIN_ADDRESS, USDC_ADDRESS, 1000, encodePriceSqrt(114700, 1))
 
-  addresses.push(`WBTC_USDC_1000=${wbtcUsdc1000}`)
+  // addresses.push(`WBTC_USDC_1000=${wbtcUsdc1000}`)
 
-  // const wbtcUsdt1000 = await deployPool(WRAPPED_BITCOIN_ADDRESS, TETHER_ADDRESS, 1000, encodePriceSqrt(114700, 1))
+  const wethUsdc500 = await deployPool(WETH_ADDRESS, USDC_ADDRESS, 500, encodePriceSqrt(77000, 1))
 
-  // addresses.push(`WBTC_USDT_1000=${wbtcUsdt500}`)
+  addresses.push(`WETH_USDC_500=${wethUsdc500}`)
 
   const data = '\n' + addresses.join('\n')
   const writeFile = promisify(fs.appendFile);
   const filePath = '.env';
   return writeFile(filePath, data)
-      .then(() => {
-        console.log('Addresses recorded.');
-      })
-      .catch((error) => {
-        console.error('Error logging addresses:', error);
-        throw error;
-      });
+    .then(() => {
+      console.log('Addresses recorded.');
+    })
+    .catch((error) => {
+      console.error('Error logging addresses:', error);
+      throw error;
+    });
 }
 
 /*

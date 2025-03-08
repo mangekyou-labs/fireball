@@ -58,9 +58,9 @@ The project consists of two main components:
    npm run db:setup
    ```
 
-5. Start the server in development mode:
+5. Start the server:
    ```bash
-   npm run dev
+   npm run start
    ```
 
 ### Client Setup
@@ -116,7 +116,7 @@ The project consists of two main components:
 
    ```bash
    cd server
-   npm run dev
+   npm run start
    ```
 
 2. In a separate terminal, start the client:
