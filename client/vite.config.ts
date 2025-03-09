@@ -27,7 +27,7 @@ export default defineConfig(({ mode }) => {
         "@": path.resolve(__dirname, "./src"),
         "@shared": path.resolve(__dirname, "../shared"),
         // Add Node.js module polyfills
-        'crypto': 'crypto-browserify',
+        'crypto': path.resolve(__dirname, './src/polyfills/exports.js'),
         'stream': 'stream-browserify',
         'buffer': 'buffer',
         'util': 'util',
@@ -66,6 +66,9 @@ export default defineConfig(({ mode }) => {
       outDir: 'dist',
       // Customize chunk size warnings
       chunkSizeWarningLimit: 1000,
+      commonjsOptions: {
+        transformMixedEsModules: true,
+      },
     },
     server: {
       proxy: isDev ? {

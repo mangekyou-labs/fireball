@@ -23,20 +23,19 @@ if (typeof window !== 'undefined') {
     (window as any).Buffer = Buffer;
 }
 
-// Add crypto polyfills
+// Add randomBytes to window - don't try to modify crypto directly
 if (typeof window !== 'undefined') {
-    (window as any).crypto = {
-        ...(window as any).crypto,
-        ...cryptoBrowserify,
-    };
-
-    // Explicitly add randomBytes
+    // Expose randomBytes globally
     (window as any).randomBytes = randomBytes;
 
-    // Also add it to the global crypto object
-    if (!(window as any).crypto.randomBytes) {
-        (window as any).crypto.randomBytes = randomBytes;
-    }
+    // Create a global crypto module for Node.js compatibility
+    (window as any).cryptoModule = cryptoBrowserify;
 }
+
+// Add some utilities to help debug
+console.log('Polyfills loaded');
+console.log('randomBytes available:', typeof (window as any).randomBytes === 'function');
+console.log('Buffer available:', typeof (window as any).Buffer !== 'undefined');
+console.log('cryptoModule available:', typeof (window as any).cryptoModule !== 'undefined');
 
 export default {}; 
