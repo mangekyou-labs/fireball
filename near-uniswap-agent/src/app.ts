@@ -35,6 +35,13 @@ app.get("/.well-known/ai-plugin.json", (_, res) => {
   res.json(pluginData);
 });
 
+// Expose Bitte manifest at /.well-known/bitte.json
+app.get("/.well-known/bitte.json", (_, res) => {
+  // Extract just the x-mb part from the pluginData
+  const { "x-mb": bitteData } = pluginData;
+  res.json(bitteData);
+});
+
 // Also expose our dexscreener plugin definition
 app.get("/.well-known/dexscreener-plugin.json", (_, res) => {
   // Import dynamically to avoid circular dependencies

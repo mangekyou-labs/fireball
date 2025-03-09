@@ -25,6 +25,7 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { useWallet } from '@/contexts/WalletContext';
 
 interface TokenInfo {
   symbol: string;
@@ -57,6 +58,7 @@ const tokenInfoToToken = (tokenInfo: TokenInfo): Token | null => {
 
 export function PoolManagement({ provider, signer, address }: PoolManagementProps) {
   const { toast } = useToast();
+  const { currentNetwork } = useWallet();
   const [loading, setLoading] = useState(false);
   const [positions, setPositions] = useState<PositionInfo[]>([]);
 
@@ -86,16 +88,19 @@ export function PoolManagement({ provider, signer, address }: PoolManagementProp
     if (address) {
       loadPositions();
     }
-  }, [address]);
+  }, [address, currentNetwork.chainIdNumber]);
 
   const loadPositions = async () => {
     if (!address) return;
 
+    setLoading(true);
     try {
       const positions = await poolService.getPositions(address);
       setPositions(positions);
     } catch (error) {
       console.error('Error loading positions:', error);
+    } finally {
+      setLoading(false);
     }
   };
 

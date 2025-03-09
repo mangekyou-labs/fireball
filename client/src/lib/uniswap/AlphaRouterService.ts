@@ -9,10 +9,25 @@ import IUniswapV3FactoryABI from '@uniswap/v3-core/artifacts/contracts/interface
 import { NETWORKS } from '@/contexts/WalletContext';
 import { CHAIN_IDS, getContractsForChain } from '@/lib/constants';
 
-// Constants
-const V3_SWAP_ROUTER_ADDRESS = import.meta.env.VITE_UNISWAP_ROUTER_ADDRESS;
-const V3_FACTORY_ADDRESS = import.meta.env.VITE_UNISWAP_FACTORY_ADDRESS;
-const DEFAULT_CHAIN_ID = parseInt(import.meta.env.VITE_CHAIN_ID);
+// Local storage key for the selected chain
+const SELECTED_CHAIN_KEY = 'selectedChainId';
+
+// Get the saved chain ID from local storage or use the default
+const getSavedChainId = (): number => {
+  try {
+    const savedChainId = localStorage.getItem(SELECTED_CHAIN_KEY);
+    if (savedChainId) {
+      const chainId = parseInt(savedChainId);
+      return chainId;
+    }
+  } catch (error) {
+    console.error('Error reading from localStorage:', error);
+  }
+  return parseInt(import.meta.env.VITE_CHAIN_ID); // Default to env chain ID if no saved chain or error
+};
+
+// Default Chain ID from environment or local storage
+const DEFAULT_CHAIN_ID = getSavedChainId();
 const POOL_FEE = 500; // 0.05%
 
 // Create providers for each network
@@ -23,7 +38,7 @@ export const providers: { [key: number]: ethers.providers.JsonRpcProvider } = {
 
 // Default provider and contracts
 let currentChainId = DEFAULT_CHAIN_ID;
-let web3Provider = providers[currentChainId];
+let web3Provider = providers[currentChainId] || providers[CHAIN_IDS.ABC_TESTNET];
 let currentContracts = getContractsForChain(currentChainId);
 
 // Function to update the current chain ID and provider
@@ -108,13 +123,33 @@ export const updateTokens = (chainId: number) => {
   );
 };
 
-// Contract instances
+// Contract instances - these will use the current provider and contracts
 export const getWethContract = () => new ethers.Contract(WETH.address, ERC20ABI, web3Provider);
 export const getWbtcContract = () => new ethers.Contract(WBTC.address, ERC20ABI, web3Provider);
 export const getUsdcContract = () => new ethers.Contract(USDC.address, ERC20ABI, web3Provider);
 export const getUsdtContract = () => new ethers.Contract(USDT.address, ERC20ABI, web3Provider);
 
-const factoryContract = new ethers.Contract(V3_FACTORY_ADDRESS, IUniswapV3FactoryABI.abi, web3Provider);
+// Get the router contract for the current network
+export const getRouterContract = () => {
+  return new ethers.Contract(
+    currentContracts.UNISWAP_ROUTER,
+    ISwapRouterABI.abi,
+    web3Provider
+  );
+};
+
+// Get the factory contract for the current network
+export const getFactoryContract = () => {
+  return new ethers.Contract(
+    currentContracts.UNISWAP_FACTORY,
+    IUniswapV3FactoryABI.abi,
+    web3Provider
+  );
+};
+
+// Initialize the service with the saved chain ID
+updateCurrentNetwork(DEFAULT_CHAIN_ID);
+updateTokens(DEFAULT_CHAIN_ID);
 
 interface PoolState {
   liquidity: BigNumber;
@@ -141,11 +176,11 @@ export const getPool = async (tokenA: Token, tokenB: Token): Promise<Pool> => {
     console.log(`Attempting to find pool for ${tokenA.symbol}/${tokenB.symbol}`);
     console.log(`Token addresses: ${tokenA.address}/${tokenB.address}`);
     console.log(`Pool fee: ${POOL_FEE}`);
-    console.log(`Factory address: ${V3_FACTORY_ADDRESS}`);
+    console.log(`Factory address: ${currentContracts.UNISWAP_FACTORY}`);
 
     // Verify the factory contract is properly initialized
     try {
-      const owner = await factoryContract.owner();
+      const owner = await getFactoryContract().owner();
       console.log(`Factory owner: ${owner}`);
     } catch (error) {
       console.error('Error calling factory.owner():', error);
@@ -154,7 +189,7 @@ export const getPool = async (tokenA: Token, tokenB: Token): Promise<Pool> => {
     // Try to get the pool address from the factory
     let poolAddress: string;
     try {
-      poolAddress = await factoryContract.getPool(
+      poolAddress = await getFactoryContract().getPool(
         tokenA.address,
         tokenB.address,
         POOL_FEE
@@ -172,7 +207,7 @@ export const getPool = async (tokenA: Token, tokenB: Token): Promise<Pool> => {
       // Try with reversed token order
       console.log(`Trying reversed token order ${tokenB.symbol}/${tokenA.symbol}`);
       try {
-        const reversedPoolAddress = await factoryContract.getPool(
+        const reversedPoolAddress = await getFactoryContract().getPool(
           tokenB.address,
           tokenA.address,
           POOL_FEE
@@ -191,7 +226,7 @@ export const getPool = async (tokenA: Token, tokenB: Token): Promise<Pool> => {
 
             console.log(`Trying with fee tier ${fee}`);
             try {
-              const altPoolAddress = await factoryContract.getPool(
+              const altPoolAddress = await getFactoryContract().getPool(
                 tokenA.address,
                 tokenB.address,
                 fee
@@ -205,7 +240,7 @@ export const getPool = async (tokenA: Token, tokenB: Token): Promise<Pool> => {
               }
 
               // Try reversed order with this fee
-              const reversedAltPoolAddress = await factoryContract.getPool(
+              const reversedAltPoolAddress = await getFactoryContract().getPool(
                 tokenB.address,
                 tokenA.address,
                 fee
@@ -394,7 +429,7 @@ export const getPrice = async (
         'exactInputSingle',
         [params]
       ),
-      to: V3_SWAP_ROUTER_ADDRESS,
+      to: currentContracts.UNISWAP_ROUTER,
       value: BigNumber.from(0),
       from: walletAddress,
       gasLimit: ethers.utils.hexlify(3000000) // Increase gas limit significantly
@@ -448,7 +483,7 @@ export const runSwap = async (
     // Check current allowance - just for logging purposes
     const currentAllowance = await connectedContract.allowance(
       walletAddress,
-      V3_SWAP_ROUTER_ADDRESS
+      currentContracts.UNISWAP_ROUTER
     );
     console.log(`Current allowance: ${currentAllowance.toString()}`);
 
@@ -458,7 +493,7 @@ export const runSwap = async (
     // Create the approval transaction but don't send it yet
     // This will make it visible in MetaMask
     const approveTx = await connectedContract.populateTransaction.approve(
-      V3_SWAP_ROUTER_ADDRESS,
+      currentContracts.UNISWAP_ROUTER,
       approvalAmount
     );
 
@@ -551,7 +586,7 @@ export const checkDirectPoolLiquidity = async (tokenA: Token, tokenB: Token): Pr
   try {
     console.log(`Directly checking pool for ${tokenA.symbol}/${tokenB.symbol}`);
     console.log(`Token addresses: ${tokenA.address}/${tokenB.address}`);
-    console.log(`Factory address: ${V3_FACTORY_ADDRESS}`);
+    console.log(`Factory address: ${currentContracts.UNISWAP_FACTORY}`);
 
     // Try all fee tiers
     const feeTiers = [100, 500, 3000, 10000]; // 0.01%, 0.05%, 0.3%, 1%
@@ -562,7 +597,7 @@ export const checkDirectPoolLiquidity = async (tokenA: Token, tokenB: Token): Pr
       // Try to get the pool address from the factory
       let poolAddress: string;
       try {
-        poolAddress = await factoryContract.getPool(
+        poolAddress = await getFactoryContract().getPool(
           tokenA.address,
           tokenB.address,
           fee
@@ -604,7 +639,7 @@ export const checkDirectPoolLiquidity = async (tokenA: Token, tokenB: Token): Pr
       console.log(`Checking reversed order with fee tier ${fee}`);
 
       try {
-        const poolAddress = await factoryContract.getPool(
+        const poolAddress = await getFactoryContract().getPool(
           tokenB.address,
           tokenA.address,
           fee

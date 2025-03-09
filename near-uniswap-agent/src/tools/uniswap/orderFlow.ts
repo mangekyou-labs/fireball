@@ -10,6 +10,7 @@ import { getRoute } from "./quote";
 import { Token } from "@uniswap/sdk-core";
 import { isNativeAsset, sellTokenApprovalTx } from "../util";
 import { getNearAccountId, signWithNearWallet } from "../near-wallet";
+import { ExtendedSignRequestData } from "../near-wallet";
 
 // https://docs.uniswap.org/sdk/v3/guides/swaps/routing
 export async function orderRequestFlow({
@@ -82,11 +83,20 @@ export async function orderRequestFlow({
       console.log(`Using NEAR wallet for account: ${nearAccountId}`);
 
       // Sign the transaction with the NEAR wallet
-      const signedTransaction = await signWithNearWallet(transaction, nearAccountId);
+      const signedTransaction = await signWithNearWallet({
+        ...transaction,
+        chainId: chainId,
+        from: typeof transaction.params[0] === 'object' ? transaction.params[0].from || "" : "",
+        metaTransactions: []
+      } as ExtendedSignRequestData, nearAccountId);
 
       // Return the signed transaction
       return {
-        transaction: signedTransaction,
+        transaction: {
+          method: transaction.method,
+          params: transaction.params,
+          chainId: chainId
+        } as SignRequestData,
         meta: { orderData: "Uniswap Order Data (Signed with NEAR wallet)" },
       };
     } catch (error) {

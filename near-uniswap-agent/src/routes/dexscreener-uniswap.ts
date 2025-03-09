@@ -873,13 +873,15 @@ function handleExecuteSwapRequest(req: Request, res: Response, next: NextFunctio
  * POST /execute-swap
  * Explicitly execute a swap transaction after the user has reviewed the token data
  */
-router.post("/execute-swap", handleExecuteSwapRequest);
+router.post("/execute-swap", (req, res, next) => {
+  return handleExecuteSwapRequest(req, res, next);
+});
 
 /**
  * POST /near-buy-dip
  * Special endpoint for NEAR wallet users to check token price and display DexScreener data
  */
-router.post("/near-buy-dip", async (req: Request, res: Response) => {
+router.post("/near-buy-dip", async (req, res) => {
   console.log("🌈 NEAR-BUY-DIP endpoint called with body:", JSON.stringify(req.body, null, 2));
 
   try {

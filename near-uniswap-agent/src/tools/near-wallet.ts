@@ -3,7 +3,7 @@ import { config } from "dotenv";
 import { Address } from "viem";
 
 // Extend base SignRequestData type from near-safe
-interface ExtendedSignRequestData {
+export interface ExtendedSignRequestData {
     chainId: number;
     from: string;
     metaTransactions: MetaTransaction[];

@@ -19,13 +19,45 @@ import {
 } from '@uniswap/v3-sdk';
 import { ethers } from 'ethers';
 import JSBI from 'jsbi';
+import { providers } from './AlphaRouterService';
+import { CHAIN_IDS, getContractsForChain } from '@/lib/constants';
 
-// Constants from environment variables
-const NONFUNGIBLE_POSITION_MANAGER_ADDRESS = import.meta.env.VITE_UNISWAP_POSITION_MANAGER_ADDRESS;
-const RPC_URL = import.meta.env.VITE_RPC_URL;
+// Local storage key for the selected chain
+const SELECTED_CHAIN_KEY = 'selectedChainId';
 
-// Web3 provider
-const web3Provider = new ethers.providers.JsonRpcProvider(RPC_URL);
+// Get the saved chain ID from local storage or use the default
+const getSavedChainId = (): number => {
+  try {
+    const savedChainId = localStorage.getItem(SELECTED_CHAIN_KEY);
+    if (savedChainId) {
+      const chainId = parseInt(savedChainId);
+      return chainId;
+    }
+  } catch (error) {
+    console.error('Error reading from localStorage:', error);
+  }
+  return parseInt(import.meta.env.VITE_CHAIN_ID); // Default to env chain ID if no saved chain or error
+};
+
+// Default Chain ID and contracts
+let currentChainId = getSavedChainId();
+let currentProvider = providers[currentChainId] || providers[CHAIN_IDS.ABC_TESTNET];
+let currentContracts = getContractsForChain(currentChainId);
+
+// Function to update the current chain ID and provider
+export const updatePoolServiceNetwork = (chainId: number) => {
+  if (providers[chainId]) {
+    currentChainId = chainId;
+    currentProvider = providers[chainId];
+    currentContracts = getContractsForChain(chainId);
+    console.log(`PoolService: Switched to chain ID ${chainId}`);
+
+    // Update the singleton instance's provider
+    poolService.updateProvider(currentProvider);
+  } else {
+    console.error(`PoolService: No provider available for chain ID ${chainId}`);
+  }
+};
 
 export interface PositionInfo {
   tokenId: number;
@@ -46,7 +78,11 @@ export class PoolService {
   private signer?: ethers.Signer;
 
   constructor() {
-    this.provider = web3Provider;
+    this.provider = currentProvider;
+  }
+
+  updateProvider(provider: ethers.providers.Provider) {
+    this.provider = provider;
   }
 
   connect(signer: ethers.Signer) {
@@ -139,7 +175,7 @@ export class PoolService {
       // Send transaction
       const tx = await this.signer.sendTransaction({
         data: calldata,
-        to: NONFUNGIBLE_POSITION_MANAGER_ADDRESS,
+        to: currentContracts.UNISWAP_POSITION_MANAGER,
         value: ethers.BigNumber.from(value),
         gasLimit: ethers.utils.hexlify(1000000),
       });
@@ -153,7 +189,7 @@ export class PoolService {
       ]);
 
       const transferLog = receipt.logs.find(
-        log => log.address.toLowerCase() === NONFUNGIBLE_POSITION_MANAGER_ADDRESS.toLowerCase() &&
+        log => log.address.toLowerCase() === currentContracts.UNISWAP_POSITION_MANAGER.toLowerCase() &&
           log.topics[0] === positionManagerInterface.getEventTopic('Transfer')
       );
 
@@ -261,7 +297,7 @@ export class PoolService {
       // Send transaction with higher gas limit for complex operations
       const tx = await this.signer.sendTransaction({
         data: calldata,
-        to: NONFUNGIBLE_POSITION_MANAGER_ADDRESS,
+        to: currentContracts.UNISWAP_POSITION_MANAGER,
         value: ethers.BigNumber.from(value),
         gasLimit: ethers.utils.hexlify(2000000), // Increased gas limit
       });
@@ -321,7 +357,7 @@ export class PoolService {
       // Send transaction
       const tx = await this.signer.sendTransaction({
         data: calldata,
-        to: NONFUNGIBLE_POSITION_MANAGER_ADDRESS,
+        to: currentContracts.UNISWAP_POSITION_MANAGER,
         value: ethers.BigNumber.from(value),
         gasLimit: ethers.utils.hexlify(1000000),
       });
@@ -362,7 +398,7 @@ export class PoolService {
       // Send transaction
       const tx = await this.signer.sendTransaction({
         data: calldata,
-        to: NONFUNGIBLE_POSITION_MANAGER_ADDRESS,
+        to: currentContracts.UNISWAP_POSITION_MANAGER,
         value: ethers.BigNumber.from(value),
         gasLimit: ethers.utils.hexlify(1000000),
       });
@@ -380,7 +416,7 @@ export class PoolService {
 
   async getPositions(walletAddress: string): Promise<PositionInfo[]> {
     const positionManagerContract = new ethers.Contract(
-      NONFUNGIBLE_POSITION_MANAGER_ADDRESS,
+      currentContracts.UNISWAP_POSITION_MANAGER,
       [
         'function balanceOf(address owner) view returns (uint256)',
         'function tokenOfOwnerByIndex(address owner, uint256 index) view returns (uint256)',
@@ -416,46 +452,43 @@ export class PoolService {
 
   private async getPoolAddress(tokenA: Token, tokenB: Token, fee: number): Promise<string> {
     const factoryContract = new ethers.Contract(
-      import.meta.env.VITE_UNISWAP_FACTORY_ADDRESS,
+      currentContracts.UNISWAP_FACTORY,
       ['function getPool(address tokenA, address tokenB, uint24 fee) external view returns (address pool)'],
       this.provider
     );
-
-    return factoryContract.getPool(tokenA.address, tokenB.address, fee);
+    return await factoryContract.getPool(tokenA.address, tokenB.address, fee);
   }
 
   private async approveToken(token: Token, amount: string): Promise<void> {
     if (!this.signer) throw new Error('Wallet not connected');
 
-    const walletAddress = await this.signer.getAddress();
     const tokenContract = new ethers.Contract(
       token.address,
       [
         'function approve(address spender, uint256 amount) external returns (bool)',
-        'function allowance(address owner, address spender) external view returns (uint256)'
+        'function allowance(address owner, address spender) external view returns (uint256)',
       ],
       this.signer
     );
 
-    // Check current allowance
+    const walletAddress = await this.signer.getAddress();
     const currentAllowance = await tokenContract.allowance(
       walletAddress,
-      NONFUNGIBLE_POSITION_MANAGER_ADDRESS
+      currentContracts.UNISWAP_POSITION_MANAGER
     );
 
-    // Only approve if current allowance is less than needed amount
-    if (ethers.BigNumber.from(currentAllowance).lt(ethers.BigNumber.from(amount))) {
-      console.log(`Approving ${token.symbol} for amount ${amount}`);
-      const tx = await tokenContract.approve(NONFUNGIBLE_POSITION_MANAGER_ADDRESS, amount);
+    if (currentAllowance.lt(ethers.utils.parseUnits(amount, token.decimals))) {
+      const tx = await tokenContract.approve(
+        currentContracts.UNISWAP_POSITION_MANAGER,
+        ethers.constants.MaxUint256
+      );
       await tx.wait();
-    } else {
-      console.log(`Sufficient allowance exists for ${token.symbol}: ${currentAllowance.toString()}`);
     }
   }
 
   private async getPosition(positionId: number): Promise<Position> {
     const positionManagerContract = new ethers.Contract(
-      NONFUNGIBLE_POSITION_MANAGER_ADDRESS,
+      currentContracts.UNISWAP_POSITION_MANAGER,
       ['function positions(uint256 tokenId) view returns (uint96 nonce, address operator, address token0, address token1, uint24 fee, int24 tickLower, int24 tickUpper, uint128 liquidity, uint256 feeGrowthInside0LastX128, uint256 feeGrowthInside1LastX128, uint128 tokensOwed0, uint128 tokensOwed1)'],
       this.provider
     );
@@ -467,8 +500,8 @@ export class PoolService {
     const token1Decimals = this.getTokenDecimals(position.token1);
 
     const pool = await this.getPool(
-      new Token(parseInt(import.meta.env.VITE_CHAIN_ID), position.token0, token0Decimals),
-      new Token(parseInt(import.meta.env.VITE_CHAIN_ID), position.token1, token1Decimals),
+      new Token(currentChainId, position.token0, token0Decimals),
+      new Token(currentChainId, position.token1, token1Decimals),
       position.fee
     );
 
@@ -505,4 +538,8 @@ export class PoolService {
   }
 }
 
-export const poolService = new PoolService(); 
+// Export a singleton instance
+export const poolService = new PoolService();
+
+// Initialize with the saved chain ID
+updatePoolServiceNetwork(getSavedChainId()); 

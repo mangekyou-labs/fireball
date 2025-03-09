@@ -9,7 +9,7 @@ SWAP_ROUTER_ADDRESS = process.env.SWAP_ROUTER_ADDRESS
 NFT_DESCRIPTOR_ADDRESS = process.env.NFT_DESCRIPTOR_ADDRESS
 POSITION_DESCRIPTOR_ADDRESS = process.env.POSITION_DESCRIPTOR_ADDRESS
 POSITION_MANAGER_ADDRESS = process.env.POSITION_MANAGER_ADDRESS
-USDT_USDC_500 = process.env.USDT_USDC_500
+USDC_USDT_500 = process.env.USDC_USDT_500
 
 const artifacts = {
   NonfungiblePositionManager: require("@uniswap/v3-periphery/artifacts/contracts/NonfungiblePositionManager.sol/NonfungiblePositionManager.json"),
@@ -45,7 +45,7 @@ async function main() {
   const [_owner, signer2] = await ethers.getSigners();
   const provider = ethers.provider
 
-  const usdtContract = new Contract(TETHER_ADDRESS,artifacts.Usdt.abi,provider)
+  const usdtContract = new Contract(TETHER_ADDRESS, artifacts.Usdt.abi, provider)
   const usdcContract = new Contract(USDC_ADDRESS, artifacts.Usdc.abi, provider)
   const wbtcContract = new Contract(WRAPPED_BITCOIN_ADDRESS, artifacts.Wbtc.abi, provider)
   const wethContract = new Contract(WETH_ADDRESS, artifacts.Weth.abi, provider)
@@ -55,7 +55,7 @@ async function main() {
   await wbtcContract.connect(signer2).approve(POSITION_MANAGER_ADDRESS, ethers.utils.parseEther('1000'))
   await wethContract.connect(signer2).approve(POSITION_MANAGER_ADDRESS, ethers.utils.parseEther('1000'))
 
-  const poolContract = new Contract(USDT_USDC_500, artifacts.UniswapV3Pool.abi, provider)
+  const poolContract = new Contract(USDC_USDT_500, artifacts.UniswapV3Pool.abi, provider)
   // const wbtcUsdcPoolContract = new Contract(WBTC_USDC_500, artifacts.UniswapV3Pool.abi, provider)
 
   const poolData = await getPoolData(poolContract)
@@ -68,8 +68,8 @@ async function main() {
   const WbtcToken = new Token(57054, WRAPPED_BITCOIN_ADDRESS, 18, 'WBTC', 'Wrapped Bitcoin')
 
   const pool = new Pool(
-    UsdtToken,
     UsdcToken,
+    UsdtToken,
     poolData.fee,
     poolData.sqrtPriceX96.toString(),
     poolData.liquidity.toString(),
@@ -100,12 +100,12 @@ async function main() {
   // })
 
   const { amount0: amount0Desired, amount1: amount1Desired } = position.mintAmounts
-  
+
   // const { amount0: amount0Wbtc, amount1: amount1Usdc } = wbtcUsdcPosition.mintAmounts
-  
+
   params = {
-    token0: TETHER_ADDRESS,
-    token1: USDC_ADDRESS,
+    token0: USDC_ADDRESS,
+    token1: TETHER_ADDRESS,
     fee: poolData.fee,
     tickLower: nearestUsableTick(poolData.tick, poolData.tickSpacing) - poolData.tickSpacing * 2,
     tickUpper: nearestUsableTick(poolData.tick, poolData.tickSpacing) + poolData.tickSpacing * 2,

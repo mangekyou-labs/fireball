@@ -13,7 +13,7 @@
     "lint": "eslint '{src,tests}/**/*.{js,jsx,ts,tsx}'",
     "fmt": "eslint --fix '{src,tests}/**/*.{js,jsx,ts,tsx}' && prettier --write '{src,tests}/**/*.{js,jsx,ts,tsx}'",
     "test": "jest --config jest.config.ts",
-    "vercel-build": "echo hello"
+    "vercel-build": "npm run build"
   },
   "dependencies": {
     "@bitte-ai/agent-sdk": "^0.1.8",
@@ -32,7 +32,7 @@
     "@eslint/js": "^9.19.0",
     "@types/cors": "^2.8.17",
     "@types/dotenv": "^6.1.1",
-    "@types/express": "^5.0.0",
+    "@types/express": "^4.17.21",
     "@types/jest": "^29.5.14",
     "@types/node": "^22.13.1",
     "@types/swagger-ui-express": "^4.1.7",

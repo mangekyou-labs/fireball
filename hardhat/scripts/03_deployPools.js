@@ -65,19 +65,19 @@ async function deployPool(token0, token1, fee, price) {
 }
 
 async function main() {
-  const usdtUsdc500 = await deployPool(TETHER_ADDRESS, USDC_ADDRESS, 500, encodePriceSqrt(1, 1))
+  const usdcUsdt500 = await deployPool(USDC_ADDRESS, TETHER_ADDRESS, 500, encodePriceSqrt(1, 1))
 
   let addresses = [
-    `USDT_USDC_500=${usdtUsdc500}`
+    `USDC_USDT_500=${usdcUsdt500}`
   ]
 
   // const wbtcUsdc1000 = await deployPool(WRAPPED_BITCOIN_ADDRESS, USDC_ADDRESS, 1000, encodePriceSqrt(114700, 1))
 
   // addresses.push(`WBTC_USDC_1000=${wbtcUsdc1000}`)
 
-  const wethUsdc500 = await deployPool(WETH_ADDRESS, USDC_ADDRESS, 500, encodePriceSqrt(77000, 1))
+  // const wethUsdc500 = await deployPool(WETH_ADDRESS, USDC_ADDRESS, 500, encodePriceSqrt(77000, 1))
 
-  addresses.push(`WETH_USDC_500=${wethUsdc500}`)
+  // addresses.push(`WETH_USDC_500=${wethUsdc500}`)
 
   const data = '\n' + addresses.join('\n')
   const writeFile = promisify(fs.appendFile);

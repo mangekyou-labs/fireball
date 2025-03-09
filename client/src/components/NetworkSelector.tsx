@@ -6,21 +6,30 @@ import {
     DropdownMenuItem,
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Globe } from 'lucide-react';
+import { Globe, Check } from 'lucide-react';
+import { useState } from 'react';
 
 export function NetworkSelector() {
     const { currentNetwork, availableNetworks, switchToNetwork } = useWallet();
+    const [isLoading, setIsLoading] = useState(false);
 
     const handleNetworkSwitch = async (network: NetworkConfig) => {
-        await switchToNetwork(network.chainIdNumber);
+        if (network.chainIdNumber === currentNetwork.chainIdNumber) return;
+
+        setIsLoading(true);
+        try {
+            await switchToNetwork(network.chainIdNumber);
+        } finally {
+            setIsLoading(false);
+        }
     };
 
     return (
         <DropdownMenu>
             <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" className="h-9 gap-1">
+                <Button variant="outline" size="sm" className="h-9 gap-1" disabled={isLoading}>
                     <Globe className="h-4 w-4" />
-                    <span>{currentNetwork.chainName}</span>
+                    <span>{isLoading ? "Switching..." : currentNetwork.chainName}</span>
                 </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
@@ -28,9 +37,12 @@ export function NetworkSelector() {
                     <DropdownMenuItem
                         key={network.chainId}
                         onClick={() => handleNetworkSwitch(network)}
-                        className={currentNetwork.chainId === network.chainId ? 'bg-accent' : ''}
+                        className="flex justify-between items-center"
                     >
-                        {network.chainName}
+                        <span>{network.chainName}</span>
+                        {currentNetwork.chainId === network.chainId && (
+                            <Check className="h-4 w-4 ml-2" />
+                        )}
                     </DropdownMenuItem>
                 ))}
             </DropdownMenuContent>

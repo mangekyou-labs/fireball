@@ -41,12 +41,13 @@ interface DexStats {
 }
 
 export function PoolStats() {
-  const { address } = useWallet();
+  const { address, currentNetwork } = useWallet();
   const [stats, setStats] = useState<DexStats | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchStats = async () => {
+      setLoading(true);
       try {
         const data = await dexStatsService.getStats(address ?? undefined);
         setStats(data);
@@ -61,7 +62,7 @@ export function PoolStats() {
     // Refresh every 30 seconds
     const interval = setInterval(fetchStats, 30000);
     return () => clearInterval(interval);
-  }, [address]);
+  }, [address, currentNetwork.chainIdNumber]); // Re-fetch when network changes
 
   // Calculate pool shares for the progress bars
   const totalTVL = stats ? parseFloat(stats.totalValueLocked) : 0;

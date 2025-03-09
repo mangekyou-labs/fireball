@@ -19,12 +19,16 @@ export const pluginData = {
   servers: [{ url }],
   "x-mb": {
     "account-id": key.accountId,
-    assistant: {
-      name: "DexScreener Assistant",
-      description: "An assistant that provides token price and market data from DexScreener",
-      instructions: "Provides token price information, latest token listings, and monitors tokens for price dips.",
-      image: `${url}/dexscreener.svg`,
-    },
+    "email": process.env.CONTACT_EMAIL || "contact@example.com",
+    "assistant": {
+      "name": "DexScreener Assistant",
+      "description": "An assistant that provides token price and market data from DexScreener",
+      "instructions": "Provides token price information, latest token listings, and monitors tokens for price dips.",
+      "tools": [{ type: "submit-query" }],
+      "image": `${url}/dexscreener.svg`,
+      "categories": ["DeFi", "Market Data", "Price Tracking"],
+      "version": "1.0.0"
+    }
   },
   paths: {
     "/api/tools/dexscreener/token-price": {

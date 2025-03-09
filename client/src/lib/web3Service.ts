@@ -1,25 +1,27 @@
 import { ethers } from 'ethers';
-import { getPrice, runSwap, WETH, WBTC, USDC, USDT } from './uniswap/AlphaRouterService';
+import { getPrice, runSwap, WETH, WBTC, USDC, USDT, getRouterContract } from './uniswap/AlphaRouterService';
 import { apiRequest } from "./api";
 import type { Token as SDKToken } from "@uniswap/sdk-core";
+import { CHAIN_IDS, getContractsForChain } from '@/lib/constants';
 
-// Define environment variables interface for TypeScript
-declare global {
-  interface ImportMeta {
-    env: {
-      VITE_INFURA_ID?: string;
-      VITE_WETH_ADDRESS: string;
-      VITE_WBTC_ADDRESS: string;
-      VITE_USDC_ADDRESS: string;
-      VITE_USDT_ADDRESS: string;
-      VITE_CHAIN_ID: string;
-      VITE_ROUTER_ADDRESS: string;
-      VITE_RPC_URL: string;
+// Local storage key for the selected chain
+const SELECTED_CHAIN_KEY = 'selectedChainId';
+
+// Get the saved chain ID from local storage or use the default
+const getSavedChainId = (): number => {
+  try {
+    const savedChainId = localStorage.getItem(SELECTED_CHAIN_KEY);
+    if (savedChainId) {
+      const chainId = parseInt(savedChainId);
+      return chainId;
     }
+  } catch (error) {
+    console.error('Error reading from localStorage:', error);
   }
-}
+  return parseInt(import.meta.env.VITE_CHAIN_ID); // Default to env chain ID if no saved chain or error
+};
 
-// Add window.ethereum type declaration
+// Add window.ethereum type declaration if not already defined
 declare global {
   interface Window {
     ethereum?: any;
@@ -48,6 +50,8 @@ export class Web3Service {
   private isTestMode: boolean = false;
   private aiWallets: Map<string, string> = new Map(); // Map user addresses to their AI wallet addresses
   private aiWalletSigners: Map<string, ethers.Wallet> = new Map(); // Store AI wallet signers
+  private currentChainId: number = getSavedChainId();
+  private currentContracts = getContractsForChain(getSavedChainId());
 
   constructor(isTestMode: boolean = false) {
     this.isTestMode = isTestMode;
@@ -56,7 +60,20 @@ export class Web3Service {
     // If window is available (browser), set up provider from Ethereum object
     if (typeof window !== 'undefined' && window.ethereum) {
       this.provider = new ethers.providers.Web3Provider(window.ethereum);
+
+      // Listen for chain changes
+      window.ethereum.on('chainChanged', (chainIdHex: string) => {
+        const chainId = parseInt(chainIdHex, 16);
+        this.updateChain(chainId);
+      });
     }
+  }
+
+  // Update the current chain
+  private updateChain(chainId: number) {
+    this.currentChainId = chainId;
+    this.currentContracts = getContractsForChain(chainId);
+    console.log(`Web3Service: Switched to chain ID ${chainId}`);
   }
 
   // Load AI wallets from localStorage
@@ -99,14 +116,14 @@ export class Web3Service {
 
       this.provider = new ethers.providers.Web3Provider(window.ethereum);
       this.signer = this.provider.getSigner();
-      
-      // Verify connection by getting the address
-      const address = await this.signer.getAddress();
-      console.log("Wallet connected successfully:", address);
+
+      // Get the current chain ID and update
+      const network = await this.provider.getNetwork();
+      this.updateChain(network.chainId);
 
       return true;
     } catch (error) {
-      console.error('Failed to connect wallet:', error);
+      console.error("Failed to connect to wallet:", error);
       return false;
     }
   }
@@ -120,7 +137,7 @@ export class Web3Service {
       // If not connected, try to connect up to 3 times
       if (!this.signer) {
         console.log("Wallet not connected, attempting to connect...");
-        
+
         let connected = false;
         for (let i = 0; i < 3; i++) {
           connected = await this.connect();
@@ -132,7 +149,7 @@ export class Web3Service {
           // Short delay between attempts
           await new Promise(resolve => setTimeout(resolve, 500));
         }
-        
+
         if (!connected || !this.signer) {
           throw new Error("Failed to connect wallet after multiple attempts");
         }
@@ -154,7 +171,7 @@ export class Web3Service {
   ): Promise<{ success: boolean; txHash?: string; outputAmount?: string; error?: string }> {
     try {
       console.log(`Executing swap: ${tokenIn} -> ${tokenOut}, amount: ${amountIn.toString()}, slippage: ${slippage}%`);
-      
+
       if (this.isTestMode) {
         console.log("Running in test mode, using simulated swaps");
         // Simple test mode implementation
@@ -167,14 +184,14 @@ export class Web3Service {
               error: "Amount too small to process safely"
             };
           }
-          
+
           // Simulate some price impact
           const outAmount = amountIn.mul(98).div(100); // 2% slippage
-          
+
           // Find the appropriate token definitions for formatting
           let inputToken: SDKToken;
           let outputToken: SDKToken;
-          
+
           switch (tokenIn.toLowerCase()) {
             case import.meta.env.VITE_WETH_ADDRESS.toLowerCase():
               inputToken = WETH;
@@ -191,7 +208,7 @@ export class Web3Service {
             default:
               throw new Error("Unsupported input token");
           }
-          
+
           switch (tokenOut.toLowerCase()) {
             case import.meta.env.VITE_WETH_ADDRESS.toLowerCase():
               outputToken = WETH;
@@ -208,15 +225,15 @@ export class Web3Service {
             default:
               throw new Error("Unsupported output token");
           }
-          
+
           // Format output amount with correct decimals from token definitions
           const formattedOutput = ethers.utils.formatUnits(outAmount, outputToken.decimals);
-          
+
           console.log(`Test swap executed: ${ethers.utils.formatUnits(amountIn, inputToken.decimals)} of token ${tokenIn} for ${formattedOutput} of token ${tokenOut}`);
-          
+
           // Create a fake transaction hash
           const txHash = ethers.utils.hexlify(ethers.utils.randomBytes(32));
-          
+
           return {
             success: true,
             txHash,
@@ -297,17 +314,17 @@ export class Web3Service {
       console.log(`Executing swap: ${inputToken.symbol} -> ${outputToken.symbol}`);
       console.log(`Input amount: ${ethers.utils.formatUnits(amountIn, inputToken.decimals)} ${inputToken.symbol}`);
       console.log(`Expected output: ${outputAmount} ${outputToken.symbol} (ratio: ${ratio})`);
-      
+
       const tx = await runSwap(transaction, this.signer, inputToken);
       console.log(`Swap transaction sent: ${tx.hash}`);
-      
+
       // Wait for transaction to be mined
       const receipt = await tx.wait();
       console.log(`Swap transaction confirmed in block ${receipt.blockNumber}`);
-      
+
       // Return success with transaction hash and expected output amount
-      return { 
-        success: true, 
+      return {
+        success: true,
         txHash: tx.hash,
         outputAmount: outputAmount
       };
@@ -378,18 +395,18 @@ export class Web3Service {
     try {
       // Try to load wallet from localStorage
       const storedWalletData = localStorage.getItem(`aiWallet_${userAddress}`);
-      
+
       if (storedWalletData) {
         // Parse the stored wallet data
         const walletData = JSON.parse(storedWalletData);
-        
+
         if (walletData && walletData.encryptedKey) {
           // Decrypt the private key
           const privateKey = this.decryptWalletData(walletData.encryptedKey, userAddress);
-          
+
           // Create wallet from private key
           const wallet = new ethers.Wallet(privateKey);
-          
+
           // Verify the address matches
           if (wallet.address.toLowerCase() === aiWalletAddress.toLowerCase()) {
             // Connect the wallet to the provider if available
@@ -398,7 +415,7 @@ export class Web3Service {
               this.aiWalletSigners.set(userAddress, connectedWallet);
               return connectedWallet;
             }
-            
+
             this.aiWalletSigners.set(userAddress, wallet);
             return wallet;
           } else {
@@ -406,7 +423,7 @@ export class Web3Service {
           }
         }
       }
-      
+
       // If we couldn't load from storage or address mismatch, create a new deterministic wallet
       console.log("Creating a new deterministic wallet for the user");
       const aiWallet = ethers.Wallet.createRandom({
@@ -417,7 +434,7 @@ export class Web3Service {
       if (this.provider) {
         const connectedWallet = aiWallet.connect(this.provider);
         this.aiWalletSigners.set(userAddress, connectedWallet);
-        
+
         // Save the new wallet
         this.aiWallets.set(userAddress, connectedWallet.address);
         const encryptedPrivateKey = this.encryptWalletData(aiWallet.privateKey, userAddress);
@@ -426,7 +443,7 @@ export class Web3Service {
           encryptedKey: encryptedPrivateKey
         }));
         this.saveAIWalletsToStorage();
-        
+
         return connectedWallet;
       }
 
@@ -455,10 +472,10 @@ export class Web3Service {
     // Store the wallet
     this.aiWallets.set(userAddress, aiWallet.address);
     this.aiWalletSigners.set(userAddress, aiWallet);
-    
+
     // Encrypt and store the private key
     const encryptedPrivateKey = this.encryptWalletData(aiWallet.privateKey, userAddress);
-    
+
     // Save to localStorage with encryption
     try {
       localStorage.setItem(`aiWallet_${userAddress}`, JSON.stringify({
@@ -468,7 +485,7 @@ export class Web3Service {
     } catch (error) {
       console.error("Failed to save encrypted wallet to storage:", error);
     }
-    
+
     this.saveAIWalletsToStorage(); // Save address mapping to localStorage
     console.log("Created new AI wallet for user:", userAddress, aiWallet.address);
 
@@ -491,7 +508,7 @@ export class Web3Service {
       console.error("Cannot register AI wallet: missing user address or AI wallet address");
       return;
     }
-    
+
     console.log("Registering existing AI wallet for user:", userAddress, aiWalletAddress);
     this.aiWallets.set(userAddress, aiWalletAddress);
     this.saveAIWalletsToStorage();
@@ -505,15 +522,15 @@ export class Web3Service {
   async createTestWallet(): Promise<string> {
     console.log("Creating a test wallet");
     this.isTestMode = true;
-    
+
     // Generate a new random wallet
     const wallet = ethers.Wallet.createRandom();
     console.log("Created test wallet:", wallet.address);
-    
+
     // Save the wallet address for use with the AI
     this.signer = wallet;
     this.saveAIWalletsToStorage(); // Save to localStorage
-    
+
     return wallet.address;
   }
 
@@ -527,7 +544,7 @@ export class Web3Service {
   ): Promise<{ success: boolean; txHash?: string; outputAmount?: string; error?: string }> {
     try {
       console.log(`Executing AI swap: ${tokenIn} -> ${tokenOut}, amount: ${amountIn.toString()}, slippage: ${slippage}%`);
-      
+
       // Get the AI wallet signer
       let aiSigner = await this.getAIWalletSigner(userAddress);
       if (!aiSigner) {
@@ -536,7 +553,7 @@ export class Web3Service {
           error: "AI wallet not available"
         };
       }
-      
+
       if (this.isTestMode) {
         // Test mode simulation code (unchanged)
         console.log("Running in test mode with AI wallet, using simulated swaps");
@@ -549,14 +566,14 @@ export class Web3Service {
               error: "Amount too small to process safely"
             };
           }
-          
+
           // Simulate some price impact
           const outAmount = amountIn.mul(98).div(100); // 2% slippage
-          
+
           // Find the appropriate token definitions for formatting
           let inputToken: SDKToken;
           let outputToken: SDKToken;
-          
+
           switch (tokenIn.toLowerCase()) {
             case import.meta.env.VITE_WETH_ADDRESS.toLowerCase():
               inputToken = WETH;
@@ -573,7 +590,7 @@ export class Web3Service {
             default:
               throw new Error("Unsupported input token");
           }
-          
+
           switch (tokenOut.toLowerCase()) {
             case import.meta.env.VITE_WETH_ADDRESS.toLowerCase():
               outputToken = WETH;
@@ -590,15 +607,15 @@ export class Web3Service {
             default:
               throw new Error("Unsupported output token");
           }
-          
+
           // Format output amount with correct decimals from token definitions
           const formattedOutput = ethers.utils.formatUnits(outAmount, outputToken.decimals);
-          
+
           console.log(`AI test swap executed: ${ethers.utils.formatUnits(amountIn, inputToken.decimals)} of token ${tokenIn} for ${formattedOutput} of token ${tokenOut}`);
-          
+
           // Create a fake transaction hash
           const txHash = ethers.utils.hexlify(ethers.utils.randomBytes(32));
-          
+
           return {
             success: true,
             txHash,
@@ -664,10 +681,10 @@ export class Web3Service {
       // Get the swap transaction
       const deadline = Math.floor(Date.now() / 1000) + 300; // 5 minutes
       console.log(`Getting price for AI swap, input amount: ${ethers.utils.formatUnits(amountIn, inputToken.decimals)} ${inputToken.symbol}`);
-      
+
       // Convert BigNumber to string for getPrice function
       const inputAmountString = ethers.utils.formatUnits(amountIn, inputToken.decimals);
-      
+
       const [transaction, outputAmount, ratio] = await getPrice(
         inputAmountString,
         inputToken,
@@ -685,15 +702,15 @@ export class Web3Service {
       console.log(`AI executing swap: ${inputToken.symbol} -> ${outputToken.symbol}`);
       console.log(`Input amount: ${ethers.utils.formatUnits(amountIn, inputToken.decimals)} ${inputToken.symbol}`);
       console.log(`Expected output: ${outputAmount} ${outputToken.symbol} (ratio: ${ratio})`);
-      
+
       // Run the actual on-chain swap
       const tx = await runSwap(transaction, aiSigner, inputToken);
       console.log(`AI swap transaction sent: ${tx.hash}`);
-      
+
       // Wait for transaction to be mined
       const receipt = await tx.wait();
       console.log(`AI swap transaction confirmed in block ${receipt.blockNumber}`);
-      
+
       return {
         success: true,
         txHash: tx.hash,
@@ -707,20 +724,20 @@ export class Web3Service {
       };
     }
   }
-  
+
   // Add a helper method to securely store wallet private keys with encryption
   private encryptWalletData(privateKey: string, userAddress: string): string {
     try {
       // Use a salt based on the user's address (or could use a constant server-side salt)
       const salt = ethers.utils.id(userAddress + "FIREBALL_SALT").slice(0, 16);
-      
+
       // Simple encryption for demo purposes
       // In production, use a proper encryption library with secure parameters
       let encrypted = '';
       for (let i = 0; i < privateKey.length; i++) {
         encrypted += String.fromCharCode(privateKey.charCodeAt(i) ^ salt.charCodeAt(i % salt.length));
       }
-      
+
       // Convert to base64 for storage
       return Buffer.from(encrypted).toString('base64');
     } catch (error) {
@@ -728,22 +745,22 @@ export class Web3Service {
       throw new Error("Failed to secure wallet data");
     }
   }
-  
+
   // Helper method to decrypt wallet private keys
   private decryptWalletData(encryptedData: string, userAddress: string): string {
     try {
       // Use the same salt as in encryption
       const salt = ethers.utils.id(userAddress + "FIREBALL_SALT").slice(0, 16);
-      
+
       // Decode from base64
       const encrypted = Buffer.from(encryptedData, 'base64').toString();
-      
+
       // Decrypt
       let privateKey = '';
       for (let i = 0; i < encrypted.length; i++) {
         privateKey += String.fromCharCode(encrypted.charCodeAt(i) ^ salt.charCodeAt(i % salt.length));
       }
-      
+
       return privateKey;
     } catch (error) {
       console.error("Error decrypting wallet data:", error);

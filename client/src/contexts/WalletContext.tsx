@@ -3,7 +3,11 @@ import { ethers } from 'ethers';
 import { useToast } from '@/hooks/use-toast';
 import { updateCurrentNetwork, updateTokens } from '@/lib/uniswap/AlphaRouterService';
 import { updateDexStatsProvider } from '@/lib/uniswap/DexStatsService';
+import { updatePoolServiceNetwork } from '@/lib/uniswap/PoolService';
 import { CHAIN_IDS, getContractsForChain } from '@/lib/constants';
+
+// Local storage key for the selected chain
+const SELECTED_CHAIN_KEY = 'selectedChainId';
 
 // Define network configuration type
 export interface NetworkConfig {
@@ -78,7 +82,24 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const [provider, setProvider] = useState<ethers.providers.Web3Provider | null>(null);
   const [signer, setSigner] = useState<ethers.Signer | null>(null);
   const [address, setAddress] = useState<string | null>(null);
-  const [currentNetwork, setCurrentNetwork] = useState<NetworkConfig>(NETWORKS[CHAIN_IDS.ABC_TESTNET]); // Default to ABC Testnet
+
+  // Get the saved chain ID from local storage or use the default
+  const getSavedChainId = (): number => {
+    try {
+      const savedChainId = localStorage.getItem(SELECTED_CHAIN_KEY);
+      if (savedChainId) {
+        const chainId = parseInt(savedChainId);
+        if (NETWORKS[chainId]) {
+          return chainId;
+        }
+      }
+    } catch (error) {
+      console.error('Error reading from localStorage:', error);
+    }
+    return CHAIN_IDS.ABC_TESTNET; // Default to ABC Testnet if no saved chain or error
+  };
+
+  const [currentNetwork, setCurrentNetwork] = useState<NetworkConfig>(NETWORKS[getSavedChainId()]);
 
   // Get contract addresses for the current network
   const getContractsForCurrentNetwork = () => {
@@ -107,10 +128,18 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       });
       setCurrentNetwork(targetNetwork);
 
+      // Save the selected chain to local storage
+      try {
+        localStorage.setItem(SELECTED_CHAIN_KEY, chainId.toString());
+      } catch (error) {
+        console.error('Error saving to localStorage:', error);
+      }
+
       // Update the network in services
       updateCurrentNetwork(chainId);
       updateTokens(chainId);
       updateDexStatsProvider(chainId);
+      updatePoolServiceNetwork(chainId);
 
       return true;
     } catch (switchError: any) {
@@ -123,10 +152,18 @@ export function WalletProvider({ children }: { children: ReactNode }) {
           });
           setCurrentNetwork(targetNetwork);
 
+          // Save the selected chain to local storage
+          try {
+            localStorage.setItem(SELECTED_CHAIN_KEY, chainId.toString());
+          } catch (error) {
+            console.error('Error saving to localStorage:', error);
+          }
+
           // Update the network in services
           updateCurrentNetwork(chainId);
           updateTokens(chainId);
           updateDexStatsProvider(chainId);
+          updatePoolServiceNetwork(chainId);
 
           return true;
         } catch (addError) {
@@ -203,6 +240,16 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     });
   };
 
+  // Initialize the network on component mount
+  useEffect(() => {
+    // Initialize services with the saved chain ID
+    const savedChainId = getSavedChainId();
+    updateCurrentNetwork(savedChainId);
+    updateTokens(savedChainId);
+    updateDexStatsProvider(savedChainId);
+    updatePoolServiceNetwork(savedChainId);
+  }, []);
+
   // Handle account changes
   useEffect(() => {
     if (window.ethereum) {
@@ -223,10 +270,18 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         if (NETWORKS[chainId]) {
           setCurrentNetwork(NETWORKS[chainId]);
 
+          // Save the selected chain to local storage
+          try {
+            localStorage.setItem(SELECTED_CHAIN_KEY, chainId.toString());
+          } catch (error) {
+            console.error('Error saving to localStorage:', error);
+          }
+
           // Update the network in services
           updateCurrentNetwork(chainId);
           updateTokens(chainId);
           updateDexStatsProvider(chainId);
+          updatePoolServiceNetwork(chainId);
 
           // Reconnect with the new network
           if (address) {

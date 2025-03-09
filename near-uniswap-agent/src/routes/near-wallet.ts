@@ -54,7 +54,7 @@ const router = Router();
  * GET /safe-address
  * Get the Safe address for a NEAR account
  */
-router.get("/safe-address", async (req: Request, res: Response) => {
+router.get("/safe-address", function (req, res) {
     try {
         // Check if NEAR wallet integration is enabled
         if (process.env.USE_NEAR_WALLET !== "true") {
@@ -106,7 +106,7 @@ router.get("/safe-address", async (req: Request, res: Response) => {
  * POST /swap
  * Create and execute a swap transaction using the NEAR wallet
  */
-router.post("/swap", async (req: Request, res: Response) => {
+router.post("/swap", async function (req, res) {
     try {
         console.log("NEAR wallet swap endpoint called with body:", JSON.stringify(req.body, null, 2));
 
@@ -303,7 +303,7 @@ router.post("/swap", async (req: Request, res: Response) => {
  * POST /near-swap
  * Simplified endpoint for swapping tokens using a NEAR wallet
  */
-router.post("/near-swap", async (req: Request, res: Response) => {
+router.post("/near-swap", async function (req, res) {
     try {
         console.log("NEAR wallet near-swap endpoint called with body:", JSON.stringify(req.body, null, 2));
 
