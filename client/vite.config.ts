@@ -26,10 +26,26 @@ export default defineConfig(({ mode }) => {
       alias: {
         "@": path.resolve(__dirname, "./src"),
         "@shared": path.resolve(__dirname, "../shared"),
+        // Add Node.js module polyfills
+        'crypto': 'crypto-browserify',
+        'stream': 'stream-browserify',
+        'buffer': 'buffer',
+        'util': 'util',
+        'process': 'process/browser',
       },
     },
     optimizeDeps: {
-      include: ['@bitte-ai/chat']
+      include: [
+        '@bitte-ai/chat',
+        'crypto-browserify',
+        'randombytes',
+        'buffer',
+      ],
+      esbuildOptions: {
+        define: {
+          global: 'globalThis'
+        }
+      }
     },
     css: {
       // Handle CSS imports from dependencies
@@ -38,6 +54,18 @@ export default defineConfig(({ mode }) => {
           javascriptEnabled: true,
         },
       }
+    },
+    build: {
+      rollupOptions: {
+        // External packages that should not be bundled
+        external: [],
+        // Options for resolving node modules
+        plugins: [],
+      },
+      // Output directory for the built files
+      outDir: 'dist',
+      // Customize chunk size warnings
+      chunkSizeWarningLimit: 1000,
     },
     server: {
       proxy: isDev ? {
@@ -87,11 +115,12 @@ export default defineConfig(({ mode }) => {
       'import.meta.env.VITE_API_BASE_URL': JSON.stringify(apiBaseUrl),
       'import.meta.env.VITE_BITTE_API_KEY': JSON.stringify(env.BITTE_API_KEY),
       // Add polyfills for Node.js globals
-      global: 'window',
+      global: 'globalThis',
       process: {
         env: {},
         browser: true,
       },
+      Buffer: ['buffer', 'Buffer'],
     }
   }
 }) 

@@ -1,4 +1,7 @@
 // Polyfill for Node.js globals and modules in browser environment
+import cryptoBrowserify from 'crypto-browserify';
+import randomBytes from 'randombytes';
+import { Buffer } from 'buffer';
 
 // Define global if it doesn't exist
 if (typeof window !== 'undefined' && typeof window.global === 'undefined') {
@@ -16,10 +19,24 @@ if (typeof window !== 'undefined' && typeof (window as any).process === 'undefin
 }
 
 // Define Buffer if it doesn't exist
-if (typeof window !== 'undefined' && typeof (window as any).Buffer === 'undefined') {
-    (window as any).Buffer = {
-        isBuffer: () => false,
+if (typeof window !== 'undefined') {
+    (window as any).Buffer = Buffer;
+}
+
+// Add crypto polyfills
+if (typeof window !== 'undefined') {
+    (window as any).crypto = {
+        ...(window as any).crypto,
+        ...cryptoBrowserify,
     };
+
+    // Explicitly add randomBytes
+    (window as any).randomBytes = randomBytes;
+
+    // Also add it to the global crypto object
+    if (!(window as any).crypto.randomBytes) {
+        (window as any).crypto.randomBytes = randomBytes;
+    }
 }
 
 export default {}; 
