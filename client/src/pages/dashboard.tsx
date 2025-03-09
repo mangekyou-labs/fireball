@@ -2,10 +2,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { ArrowRight } from "lucide-react";
-import { useWallet } from "@/hooks/use-wallet";
+import { useWallet } from "@/contexts/WalletContext";
 import { PoolStats } from "@/components/PoolStats";
 import { PoolManagement } from "@/components/PoolManagement";
 import { AIStrategyPanel } from "@/components/AIStrategyPanel";
+import { CrossChainAgent } from "@/components/CrossChainAgent";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 export default function Dashboard() {
@@ -28,6 +29,7 @@ export default function Dashboard() {
           <TabsList>
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="ai">AI Trading</TabsTrigger>
+            <TabsTrigger value="cross-chain">Cross-chain Agent</TabsTrigger>
           </TabsList>
 
           <TabsContent value="overview">
@@ -61,7 +63,7 @@ export default function Dashboard() {
                   </CardContent>
                 </Card>
               </div>
-              
+
               {/* Live statistics when loaded */}
               <PoolStats />
             </div>
@@ -69,6 +71,10 @@ export default function Dashboard() {
 
           <TabsContent value="ai">
             <AIStrategyPanel />
+          </TabsContent>
+
+          <TabsContent value="cross-chain">
+            <CrossChainAgent />
           </TabsContent>
 
           <TabsContent value="positions">
