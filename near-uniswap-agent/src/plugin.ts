@@ -827,6 +827,109 @@ export const pluginData = {
         }
       }
     },
+    "/api/tools/near-wallet/near-swap": {
+      post: {
+        tags: ["near-wallet"],
+        summary: "Swap tokens using NEAR wallet",
+        description: "Simplified endpoint for swapping tokens using a NEAR wallet. This endpoint automatically uses your NEAR account for wallet address detection and returns a signing URL for the transaction.",
+        operationId: "near-wallet-near-swap",
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  tokenAddress: {
+                    type: "string",
+                    description: "Target token address to buy (must be a valid ERC20 token address)",
+                    example: "0x4200000000000000000000000000000000000006"
+                  },
+                  chainId: {
+                    type: "string",
+                    description: "Chain ID (defaults to 8453 for Base)",
+                    example: "8453"
+                  },
+                  amount: {
+                    type: "string",
+                    description: "Amount of USDC to swap (defaults to 1000000 which is 1 USDC with 6 decimals)",
+                    example: "1000000"
+                  }
+                },
+                required: ["tokenAddress"]
+              },
+              examples: {
+                "Swap USDC to WETH on Base": {
+                  value: {
+                    "tokenAddress": "0x4200000000000000000000000000000000000006",
+                    "chainId": "8453",
+                    "amount": "1000000"
+                  }
+                }
+              }
+            }
+          }
+        },
+        responses: {
+          "200": {
+            description: "Swap transaction prepared successfully",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    success: {
+                      type: "boolean",
+                      description: "Whether the transaction was prepared successfully"
+                    },
+                    message: {
+                      type: "string",
+                      description: "Message about the transaction"
+                    },
+                    nearAccountId: {
+                      type: "string",
+                      description: "NEAR account ID"
+                    },
+                    safeAddress: {
+                      type: "string",
+                      description: "Safe address for the NEAR account"
+                    },
+                    tokenData: {
+                      type: "object",
+                      description: "Token data from DexScreener"
+                    },
+                    signUrl: {
+                      type: "string",
+                      description: "URL to sign the transaction with the NEAR wallet"
+                    },
+                    instructions: {
+                      type: "string",
+                      description: "Instructions for signing the transaction"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            description: "Bad request - missing required parameters",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    error: {
+                      type: "string",
+                      description: "Error message"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/tools/dexscreener-uniswap/near-buy-dip": {
       post: {
         tags: ["dexscreener-uniswap"],

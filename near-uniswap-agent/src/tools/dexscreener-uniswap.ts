@@ -163,7 +163,8 @@ export async function buyOnPriceDip(params: BuyDipParams) {
         currentPrice: pairData.priceUsd ? parseFloat(pairData.priceUsd) : 0,
         isUsingNearWallet,
         nearAccountId,
-        tokenData
+        tokenData,
+        signUrl: null
       };
     }
 
@@ -215,7 +216,8 @@ export async function buyOnPriceDip(params: BuyDipParams) {
         transaction,
         isUsingNearWallet,
         nearAccountId,
-        tokenData
+        tokenData,
+        signUrl: null
       };
     } else {
       return {
@@ -226,7 +228,8 @@ export async function buyOnPriceDip(params: BuyDipParams) {
         currentPrice: pairData.priceUsd ? parseFloat(pairData.priceUsd) : 0,
         isUsingNearWallet,
         nearAccountId,
-        tokenData
+        tokenData,
+        signUrl: null
       };
     }
   } catch (error) {

@@ -6,51 +6,107 @@ import ERC20ABI from './abis/ERC20.json';
 import IUniswapV3PoolABI from '@uniswap/v3-core/artifacts/contracts/interfaces/IUniswapV3Pool.sol/IUniswapV3Pool.json';
 import ISwapRouterABI from '@uniswap/v3-periphery/artifacts/contracts/interfaces/ISwapRouter.sol/ISwapRouter.json';
 import IUniswapV3FactoryABI from '@uniswap/v3-core/artifacts/contracts/interfaces/IUniswapV3Factory.sol/IUniswapV3Factory.json';
+import { NETWORKS } from '@/contexts/WalletContext';
+import { CHAIN_IDS, getContractsForChain } from '@/lib/constants';
 
 // Constants
 const V3_SWAP_ROUTER_ADDRESS = import.meta.env.VITE_UNISWAP_ROUTER_ADDRESS;
 const V3_FACTORY_ADDRESS = import.meta.env.VITE_UNISWAP_FACTORY_ADDRESS;
-const RPC_URL = import.meta.env.VITE_RPC_URL;
+const DEFAULT_CHAIN_ID = parseInt(import.meta.env.VITE_CHAIN_ID);
 const POOL_FEE = 500; // 0.05%
 
-// Chain ID from environment
-const chainId = parseInt(import.meta.env.VITE_CHAIN_ID);
+// Create providers for each network
+export const providers: { [key: number]: ethers.providers.JsonRpcProvider } = {
+  [CHAIN_IDS.ABC_TESTNET]: new ethers.providers.JsonRpcProvider(import.meta.env.VITE_RPC_URL),
+  [CHAIN_IDS.SONIC_BLAZE_TESTNET]: new ethers.providers.JsonRpcProvider(import.meta.env.VITE_SONIC_BLAZE_RPC_URL || 'https://rpc.blaze.soniclabs.com'),
+};
 
-// Web3 provider
-const web3Provider = new ethers.providers.JsonRpcProvider(RPC_URL);
+// Default provider and contracts
+let currentChainId = DEFAULT_CHAIN_ID;
+let web3Provider = providers[currentChainId];
+let currentContracts = getContractsForChain(currentChainId);
 
-// Token definitions
-export const WETH = new Token(
-  chainId,
-  import.meta.env.VITE_WETH_ADDRESS,
+// Function to update the current chain ID and provider
+export const updateCurrentNetwork = (chainId: number) => {
+  if (providers[chainId]) {
+    currentChainId = chainId;
+    web3Provider = providers[chainId];
+    currentContracts = getContractsForChain(chainId);
+    console.log(`AlphaRouterService: Switched to chain ID ${chainId}`);
+  } else {
+    console.error(`AlphaRouterService: No provider available for chain ID ${chainId}`);
+  }
+};
+
+// Token definitions - these will be updated when the network changes
+export let WETH = new Token(
+  currentChainId,
+  currentContracts.WETH,
   18,
   'WETH',
   'Wrapped Ether'
 );
 
-export const WBTC = new Token(
-  chainId,
-  import.meta.env.VITE_WBTC_ADDRESS,
+export let WBTC = new Token(
+  currentChainId,
+  currentContracts.WBTC,
   18,  // testnet version has 18 decimals
   'WBTC',
   'Wrapped Bitcoin'
 );
 
-export const USDT = new Token(
-  chainId,
-  import.meta.env.VITE_USDT_ADDRESS,
+export let USDT = new Token(
+  currentChainId,
+  currentContracts.USDT,
   18,  // testnet version has 18 decimals
   'USDT',
   'Tether USD'
 );
 
-export const USDC = new Token(
-  chainId,
-  import.meta.env.VITE_USDC_ADDRESS,
+export let USDC = new Token(
+  currentChainId,
+  currentContracts.USDC,
   18,  // testnet version has 18 decimals
   'USDC',
   'Circle USD'
 );
+
+// Function to update token definitions when the network changes
+export const updateTokens = (chainId: number) => {
+  const contracts = getContractsForChain(chainId);
+
+  WETH = new Token(
+    chainId,
+    contracts.WETH,
+    18,
+    'WETH',
+    'Wrapped Ether'
+  );
+
+  WBTC = new Token(
+    chainId,
+    contracts.WBTC,
+    18,
+    'WBTC',
+    'Wrapped Bitcoin'
+  );
+
+  USDT = new Token(
+    chainId,
+    contracts.USDT,
+    18,
+    'USDT',
+    'Tether USD'
+  );
+
+  USDC = new Token(
+    chainId,
+    contracts.USDC,
+    18,
+    'USDC',
+    'Circle USD'
+  );
+};
 
 // Contract instances
 export const getWethContract = () => new ethers.Contract(WETH.address, ERC20ABI, web3Provider);

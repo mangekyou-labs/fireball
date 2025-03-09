@@ -86,7 +86,7 @@ export function getSafeAddressForNearAccount(nearAccountId: string, chainId: num
 export async function signWithNearWallet(
     transaction: ExtendedSignRequestData,
     nearAccountId: string
-): Promise<ExtendedSignRequestData> {
+): Promise<ExtendedSignRequestData & { signUrl: string }> {
     try {
         console.log(`Signing transaction with NEAR wallet for account ${nearAccountId}`);
 
@@ -99,41 +99,35 @@ export async function signWithNearWallet(
             signUrl,
             nearAccountId
         };
-    } catch (error: any) {
-        console.error(`Error signing transaction with NEAR wallet:`, error);
-        throw new Error(`Failed to create signature request: ${error.message}`);
+    } catch (error) {
+        console.error("Error signing transaction with NEAR wallet:", error);
+        throw new Error(`Failed to sign transaction with NEAR wallet: ${error instanceof Error ? error.message : String(error)}`);
     }
 }
 
 /**
- * Execute a transaction with NEAR wallet, deploying Safe if needed
+ * Execute a transaction using the NEAR wallet
  */
 export async function executeWithNearWallet(
     transaction: ExtendedSignRequestData,
     nearAccountId: string,
     chainId: number
-): Promise<any> {
+): Promise<{ success: boolean; signUrl: string; transaction: ExtendedSignRequestData }> {
     try {
-        console.log(`Preparing transaction with NEAR wallet for account ${nearAccountId}`);
+        console.log(`Executing transaction with NEAR wallet for account ${nearAccountId} on chain ${chainId}`);
 
-        // Get the Safe address for this NEAR account
-        const safeAddress = getSafeAddressForNearAccount(nearAccountId, chainId);
+        // Sign the transaction with the NEAR wallet
+        const signedTransaction = await signWithNearWallet(transaction, nearAccountId);
 
-        // Instead of executing directly, return the transaction data with the sign URL
-        // The frontend will handle redirecting the user to sign with their NEAR wallet
-        const signedTx = await signWithNearWallet(transaction, nearAccountId);
-
+        // Return the signed transaction with the signature request URL
         return {
-            status: "pending_signature",
-            message: "Please sign the transaction with your NEAR wallet",
-            safeAddress,
-            nearAccountId,
-            chainId,
-            signUrl: signedTx.signUrl
+            success: true,
+            signUrl: signedTransaction.signUrl,
+            transaction: signedTransaction
         };
-    } catch (error: any) {
-        console.error(`Error preparing NEAR wallet transaction:`, error);
-        throw new Error(`Failed to prepare transaction: ${error.message}`);
+    } catch (error) {
+        console.error("Error executing transaction with NEAR wallet:", error);
+        throw new Error(`Failed to execute transaction with NEAR wallet: ${error instanceof Error ? error.message : String(error)}`);
     }
 }
 

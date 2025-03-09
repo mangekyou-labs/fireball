@@ -48,13 +48,13 @@ interface TradingResponse {
 }
 
 // Add this component for the Memecoin Strategy Modal
-function MemeStrategyModal({ 
-  open, 
-  onOpenChange, 
-  onSave 
-}: { 
-  open: boolean; 
-  onOpenChange: (open: boolean) => void; 
+function MemeStrategyModal({
+  open,
+  onOpenChange,
+  onSave
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   onSave: (config: MemeStrategyConfig) => void;
 }) {
   const [dipThreshold, setDipThreshold] = useState(30); // 30% dip
@@ -89,13 +89,13 @@ function MemeStrategyModal({
             Set up automated dip detection with take profit and stop loss orders for memecoins
           </DialogDescription>
         </DialogHeader>
-        
+
         <Tabs defaultValue="basic" className="w-full mt-4">
           <TabsList className="grid w-full grid-cols-2">
             <TabsTrigger value="basic">Basic Settings</TabsTrigger>
             <TabsTrigger value="advanced">Advanced Settings</TabsTrigger>
           </TabsList>
-          
+
           <TabsContent value="basic" className="space-y-4 pt-4">
             <div className="space-y-2">
               <Label htmlFor="investmentPercentage">Investment Percentage</Label>
@@ -114,7 +114,7 @@ function MemeStrategyModal({
                 Percentage of allocated funds to use for memecoin trading
               </p>
             </div>
-            
+
             <div className="space-y-2">
               <Label htmlFor="dipThreshold">Buy Dip Threshold (%)</Label>
               <div className="flex items-center space-x-2">
@@ -132,7 +132,7 @@ function MemeStrategyModal({
                 Buy when price drops by this percentage within the time window
               </p>
             </div>
-            
+
             <div className="space-y-2">
               <Label htmlFor="timeWindow">Time Window (minutes)</Label>
               <div className="flex items-center space-x-2">
@@ -147,7 +147,7 @@ function MemeStrategyModal({
                 <span className="w-12 text-right">{timeWindow}m</span>
               </div>
             </div>
-            
+
             <div className="flex items-center space-x-2">
               <Switch
                 id="aiEnabled"
@@ -160,7 +160,7 @@ function MemeStrategyModal({
               </span>
             </div>
           </TabsContent>
-          
+
           <TabsContent value="advanced" className="space-y-4 pt-4">
             <div className="space-y-2">
               <Label htmlFor="takeProfitMultiplier">Take Profit (multiplier)</Label>
@@ -176,7 +176,7 @@ function MemeStrategyModal({
                 <span className="w-12 text-right">{takeProfitMultiplier}x</span>
               </div>
             </div>
-            
+
             <div className="space-y-2">
               <Label htmlFor="stopLossMultiplier">Stop Loss (multiplier)</Label>
               <div className="flex items-center space-x-2">
@@ -191,7 +191,7 @@ function MemeStrategyModal({
                 <span className="w-12 text-right">{stopLossMultiplier}x</span>
               </div>
             </div>
-            
+
             <div className="flex items-center space-x-2">
               <Switch
                 id="partialTakeProfit"
@@ -200,7 +200,7 @@ function MemeStrategyModal({
               />
               <Label htmlFor="partialTakeProfit">Partial Take Profit</Label>
             </div>
-            
+
             {partialTakeProfit && (
               <div className="space-y-2 pl-6">
                 <Label htmlFor="partialTakeProfitPercentage">Percentage to Sell</Label>
@@ -219,7 +219,7 @@ function MemeStrategyModal({
             )}
           </TabsContent>
         </Tabs>
-        
+
         <DialogFooter className="mt-6">
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
           <Button onClick={handleSave}>Save Configuration</Button>
@@ -230,13 +230,13 @@ function MemeStrategyModal({
 }
 
 // Add this component for the Limit Order Strategy Modal
-function LimitOrderStrategyModal({ 
-  open, 
-  onOpenChange, 
-  onSave 
-}: { 
-  open: boolean; 
-  onOpenChange: (open: boolean) => void; 
+function LimitOrderStrategyModal({
+  open,
+  onOpenChange,
+  onSave
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   onSave: (config: LimitOrderConfig) => void;
 }) {
   const [buyThreshold, setBuyThreshold] = useState(5); // 5% below market
@@ -265,7 +265,7 @@ function LimitOrderStrategyModal({
             Set up AI-powered limit orders based on market analysis
           </DialogDescription>
         </DialogHeader>
-        
+
         <div className="space-y-4 mt-4">
           <div className="space-y-2">
             <Label htmlFor="buyThreshold">Buy Threshold (%)</Label>
@@ -284,7 +284,7 @@ function LimitOrderStrategyModal({
               Place buy orders this percentage below current market price
             </p>
           </div>
-          
+
           <div className="space-y-2">
             <Label htmlFor="sellThreshold">Sell Threshold (%)</Label>
             <div className="flex items-center space-x-2">
@@ -302,7 +302,7 @@ function LimitOrderStrategyModal({
               Place sell orders this percentage above current market price
             </p>
           </div>
-          
+
           <div className="space-y-2">
             <Label htmlFor="maxOrdersPerDay">Max Orders Per Day</Label>
             <div className="flex items-center space-x-2">
@@ -317,7 +317,7 @@ function LimitOrderStrategyModal({
               <span className="w-12 text-right">{maxOrdersPerDay}</span>
             </div>
           </div>
-          
+
           <div className="space-y-2">
             <Label htmlFor="maxAllocationPerOrder">Max Allocation Per Order (%)</Label>
             <div className="flex items-center space-x-2">
@@ -335,7 +335,7 @@ function LimitOrderStrategyModal({
               Maximum percentage of allocated funds to use per order
             </p>
           </div>
-          
+
           <div className="flex items-center space-x-2">
             <Switch
               id="useAIForPriceTargets"
@@ -348,7 +348,7 @@ function LimitOrderStrategyModal({
             </span>
           </div>
         </div>
-        
+
         <DialogFooter className="mt-6">
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
           <Button onClick={handleSave}>Save Configuration</Button>
@@ -394,17 +394,17 @@ interface ArbitrageStrategyConfig {
 
 export function AIStrategyPanel() {
   const { toast } = useToast();
-  const { isConnected, address, connect } = useWallet();
+  const { isConnected, address, connect, currentNetwork } = useWallet();
   const queryClient = useQueryClient();
   const [, setLocation] = useLocation();
-  
+
   const [analysis, setAnalysis] = useState<{
     recommendation: string;
     confidence: number;
     action: "BUY" | "SELL" | "HOLD";
     reasoning: string[];
   } | null>(null);
-  
+
   const [isAutoTrading, setIsAutoTrading] = useState(false);
   const [sessionId, setSessionId] = useState<number | null>(null);
   const [allocatedFunds, setAllocatedFunds] = useState(0);
@@ -450,7 +450,7 @@ export function AIStrategyPanel() {
     queryKey: ['strategies'],
     queryFn: async () => {
       try {
-        const data = await apiRequest<{strategies: Strategy[]}>('/api/strategies');
+        const data = await apiRequest<{ strategies: Strategy[] }>('/api/strategies');
         console.log("Fetched strategies:", data);
         return data;
       } catch (error) {
@@ -459,7 +459,7 @@ export function AIStrategyPanel() {
       }
     }
   });
-  
+
   // Extract strategies array from the response
   const strategies = strategiesData?.strategies || [];
 
@@ -467,11 +467,11 @@ export function AIStrategyPanel() {
   useEffect(() => {
     // Debug log to see what's happening
     console.log("Risk level changed to:", riskLevel);
-    
+
     // Create a safe reference to strategies
     const safeStrategies = strategies || [];
     console.log("Available strategies:", safeStrategies);
-    
+
     // Disable strategies that don't match the current risk level
     if (riskLevel === 'low') {
       // Only update if the state is different
@@ -483,43 +483,43 @@ export function AIStrategyPanel() {
         setIsMemeStrategyEnabled(false);
       }
     }
-    
+
     // Reset backend strategies based on risk level
     // Only run this logic when strategies are available
     if (safeStrategies.length > 0) {
       let foundEnabledStrategy = false;
-      
+
       // Create a temporary array to track which strategies need to be toggled
-      const strategiesToToggle: Array<{id: number, shouldBeEnabled: boolean}> = [];
-      
+      const strategiesToToggle: Array<{ id: number, shouldBeEnabled: boolean }> = [];
+
       safeStrategies.forEach(strategy => {
         const strategyRiskLevel = strategy.riskLevel || 'medium';
         console.log(`Strategy ${strategy.name} has risk level: ${strategyRiskLevel}`);
-        
+
         // Determine if the strategy should be visible based on risk level
-        const shouldBeVisible = 
+        const shouldBeVisible =
           (riskLevel === 'low' && strategyRiskLevel === 'low') ||
           (riskLevel === 'medium' && strategyRiskLevel === 'medium') ||
           (riskLevel === 'high' && strategyRiskLevel === 'high');
-        
+
         console.log(`Strategy ${strategy.name} should be visible: ${shouldBeVisible}`);
-        
+
         // If strategy is not visible at current risk level, disable it
         if (!shouldBeVisible && strategy.enabled) {
-          strategiesToToggle.push({id: strategy.id, shouldBeEnabled: false});
+          strategiesToToggle.push({ id: strategy.id, shouldBeEnabled: false });
         } else if (shouldBeVisible && strategy.enabled) {
           // If we already found an enabled strategy, disable this one
           if (foundEnabledStrategy) {
-            strategiesToToggle.push({id: strategy.id, shouldBeEnabled: false});
+            strategiesToToggle.push({ id: strategy.id, shouldBeEnabled: false });
           } else {
             foundEnabledStrategy = true;
           }
         }
       });
-      
+
       // Now execute toggles outside the forEach to prevent nested state updates
       // Use a local variable to prevent useEffect dependency issues
-      const apiRequests = strategiesToToggle.map(async ({id, shouldBeEnabled}) => {
+      const apiRequests = strategiesToToggle.map(async ({ id, shouldBeEnabled }) => {
         try {
           return await apiRequest(`/api/strategies/${id}/toggle`, {
             method: 'GET',
@@ -530,7 +530,7 @@ export function AIStrategyPanel() {
           return null;
         }
       });
-      
+
       // Use Promise.all to wait for all toggles and only invalidate once
       if (apiRequests.length > 0) {
         Promise.all(apiRequests).then(() => {
@@ -540,21 +540,21 @@ export function AIStrategyPanel() {
         });
       }
     }
-    
+
     // Log the risk level change
     addLog(`Risk level changed to ${riskLevel}`, 'info');
   }, [riskLevel, strategies, isMemeStrategyEnabled, queryClient]);
 
   const addLog = async (message: string, type: 'info' | 'success' | 'error' = 'info') => {
     // Add to local state
-    const newLog = { 
-      message, 
-      type, 
+    const newLog = {
+      message,
+      type,
       timestamp: new Date().toLocaleTimeString()
     };
-    
+
     setLogs(prev => [...prev, newLog]);
-    
+
     // Store in database if we have an active session
     if (sessionId) {
       try {
@@ -579,7 +579,7 @@ export function AIStrategyPanel() {
   // Update the function to clear logs from both state and database
   const clearLogs = async () => {
     setLogs([]);
-    
+
     // Clear logs from database if we have an active session
     if (sessionId) {
       try {
@@ -603,12 +603,12 @@ export function AIStrategyPanel() {
       // Reset trading state when switching wallets
       setIsAutoTrading(false);
       setSessionId(null);
-      
+
       // Update selected wallet
       setSelectedAIWallet(walletAddress);
       setAllocatedFunds(allocatedAmount);
       addLog(`Selected AI wallet: ${walletAddress} with ${allocatedAmount} USDC allocated`, 'info');
-      
+
       // Invalidate trading session query to refresh data
       queryClient.invalidateQueries(['trading-session', address, walletAddress] as InvalidateQueryFilters);
     }
@@ -646,25 +646,25 @@ export function AIStrategyPanel() {
     try {
       // If no AI wallet is selected, use a temporary wallet
       let aiWalletToUse = selectedAIWallet;
-      
+
       if (!aiWalletToUse) {
         // Create a temporary wallet address (this is just a workaround)
         // In production, you would want to properly create an AI wallet
         aiWalletToUse = "0x" + Array(40).fill(0).map(() => Math.floor(Math.random() * 16).toString(16)).join('');
-        
+
         addLog(`Using temporary AI wallet: ${aiWalletToUse}`, 'info');
         setSelectedAIWallet(aiWalletToUse);
       }
-      
+
       // Log all values before sending the request
       console.log("Allocation request parameters:", {
         userAddress: address,
         aiWalletAddress: aiWalletToUse,
         allocatedAmount: amount.toString()
       });
-      
+
       addLog(`Allocating ${amount} USDC to AI trading...`, 'info');
-      
+
       const response = await apiRequest<TradingResponse>('/api/trading/start', {
         method: 'POST',
         body: {  // Changed from 'data' to 'body' to match the API function
@@ -674,13 +674,13 @@ export function AIStrategyPanel() {
           tokenAddress: USDC_ADDRESS
         }
       });
-      
+
       if (response.success) {
         setSessionId(response.sessionId);
         setAllocatedFunds(amount);
         showToast(`Successfully allocated ${amount} USDC to AI trading`);
         addLog(`Allocated ${amount} USDC to session #${response.sessionId}`, 'success');
-        
+
         // Invalidate trading session query to refresh data
         queryClient.invalidateQueries(['trading-session', address] as InvalidateQueryFilters);
       } else {
@@ -695,24 +695,24 @@ export function AIStrategyPanel() {
   const toggleStrategy = async (strategyId: number, enabled: boolean) => {
     try {
       addLog(`${enabled ? 'Enabling' : 'Disabling'} strategy ID ${strategyId}...`, 'info');
-      
+
       await apiRequest(`/api/strategies/${strategyId}/toggle`, {
         method: 'GET',
         params: { enabled }
       });
-      
+
       // Refresh strategies list
       queryClient.invalidateQueries(['strategies']);
-      
+
       showToast(`Strategy ${enabled ? 'enabled' : 'disabled'} successfully`);
       addLog(`Strategy ID ${strategyId} ${enabled ? 'enabled' : 'disabled'}`, 'success');
-      
+
       // If enabling this strategy, make sure to disable the memecoin strategy UI state manually
       // instead of letting the useEffect handle it to prevent loops
       if (enabled && isMemeStrategyEnabled) {
         setIsMemeStrategyEnabled(false);
       }
-      
+
     } catch (error) {
       console.error(`Error ${enabled ? 'enabling' : 'disabling'} strategy:`, error);
       handleError(error);
@@ -724,10 +724,10 @@ export function AIStrategyPanel() {
       showToast("Please allocate funds before starting trading", "destructive");
       return;
     }
-    
+
     try {
       addLog(`${enabled ? 'Starting' : 'Stopping'} auto-trading...`, 'info');
-      
+
       if (enabled) {
         // Start trading logic - keep existing implementation
         await apiRequest(`/api/trading/start`, {
@@ -746,15 +746,15 @@ export function AIStrategyPanel() {
           body: { sessionId }
         });
       }
-      
+
       setIsAutoTrading(enabled);
-      
+
       showToast(`Auto-trading ${enabled ? 'started' : 'stopped'} successfully`);
       addLog(`Auto-trading ${enabled ? 'started' : 'stopped'}`, enabled ? 'success' : 'info');
-      
+
       // Invalidate trading session query to refresh data
       queryClient.invalidateQueries(['trading-session', address] as InvalidateQueryFilters);
-      
+
     } catch (error) {
       console.error(`Error ${enabled ? 'starting' : 'stopping'} auto-trading:`, error);
       handleError(error);
@@ -776,11 +776,10 @@ export function AIStrategyPanel() {
           ) : (
             <div className="space-y-1">
               {logs.map((log, i) => (
-                <div key={i} className={`text-sm px-2 py-1 rounded ${
-                  log.type === 'success' ? 'bg-green-50 text-green-800' :
+                <div key={i} className={`text-sm px-2 py-1 rounded ${log.type === 'success' ? 'bg-green-50 text-green-800' :
                   log.type === 'error' ? 'bg-red-50 text-red-800' :
-                  'bg-gray-50 text-gray-800'
-                }`}>
+                    'bg-gray-50 text-gray-800'
+                  }`}>
                   {log.timestamp && <span className="text-xs opacity-70 mr-1">[{log.timestamp}]</span>}
                   {log.message}
                 </div>
@@ -800,18 +799,18 @@ export function AIStrategyPanel() {
       console.log('Fetching trading sessions for address:', address, 'and wallet:', selectedAIWallet);
       try {
         const sessions = await apiRequest<TradingSession[]>('/api/trading/status', {
-          params: { 
+          params: {
             userAddress: address,
             aiWalletAddress: selectedAIWallet
           }
         });
         console.log('Received trading sessions:', sessions);
-        
+
         // Only return active sessions
-        const activeSessions = sessions?.filter(session => 
+        const activeSessions = sessions?.filter(session =>
           session.isActive && session.aiWalletAddress === selectedAIWallet
         );
-        
+
         return activeSessions?.[0] || null;
       } catch (error) {
         console.error('Error fetching trading sessions:', error);
@@ -828,18 +827,18 @@ export function AIStrategyPanel() {
       addLog(`Error loading trading session: ${sessionError}`, 'error');
     } else if (activeSession) {
       console.log('Active session loaded:', activeSession);
-      
+
       // Only update state if values have changed
       if (sessionId !== activeSession.id) {
         console.log(`Updating sessionId from ${sessionId} to ${activeSession.id}`);
         setSessionId(activeSession.id);
       }
-      
+
       if (isAutoTrading !== activeSession.isActive) {
         console.log(`Updating autoTrading state from ${isAutoTrading} to ${activeSession.isActive}`);
         setIsAutoTrading(activeSession.isActive);
       }
-      
+
       const sessionAmount = Number(activeSession.allocatedAmount);
       // Only update allocated funds if it's different
       if (allocatedFunds !== sessionAmount) {
@@ -901,7 +900,7 @@ export function AIStrategyPanel() {
       } else {
         console.log("Meme strategy config unchanged, skipping update");
       }
-      
+
       // Check if the memecoin strategy is enabled
       const isEnabled = await strategyService.isMemeStrategyEnabled();
       // Only update if the enabled state is different
@@ -945,11 +944,11 @@ export function AIStrategyPanel() {
           console.error("Error loading strategy configurations:", error);
         }
       };
-      
+
       loadConfigurations();
     }
-  // Intentionally remove memeStrategyConfig and arbitrageStrategyConfig from dependencies
-  // to prevent infinite update loops
+    // Intentionally remove memeStrategyConfig and arbitrageStrategyConfig from dependencies
+    // to prevent infinite update loops
   }, [allocatedFunds]);
 
   // Modify the memecoin strategy handler
@@ -1064,10 +1063,10 @@ export function AIStrategyPanel() {
                 <div className="mr-2 h-5 w-5 flex items-center justify-center rounded-full bg-muted text-xs font-bold">2</div>
                 <h3 className="font-semibold">Allocate Funds to AI Trading</h3>
               </div>
-              
-              <AIWalletSelector 
-                userAddress={address} 
-                onWalletSelect={(walletAddress, allocatedAmount) => handleAIWalletSelect(walletAddress, allocatedAmount)} 
+
+              <AIWalletSelector
+                userAddress={address}
+                onWalletSelect={(walletAddress, allocatedAmount) => handleAIWalletSelect(walletAddress, allocatedAmount)}
               />
 
               <div className="flex items-center justify-between">
@@ -1100,7 +1099,7 @@ export function AIStrategyPanel() {
                 </div>
                 <Button size="sm" onClick={() => allocateFunds(allocatedFunds)}>Allocate</Button>
               </div>
-              
+
               {/* DEX Integration Information */}
               <div className="rounded-md bg-muted p-3">
                 <h4 className="mb-2 font-semibold">DEX Integration</h4>
@@ -1115,7 +1114,7 @@ export function AIStrategyPanel() {
                   </div>
                   <div className="flex justify-between">
                     <span>Chain ID:</span>
-                    <span>{import.meta.env.VITE_CHAIN_ID}</span>
+                    <span>{currentNetwork.chainIdNumber}</span>
                   </div>
                 </div>
               </div>
@@ -1135,24 +1134,24 @@ export function AIStrategyPanel() {
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-medium">Risk Level</span>
                   <div className="flex items-center space-x-1">
-                    <Button 
-                      size="sm" 
+                    <Button
+                      size="sm"
                       variant={riskLevel === 'low' ? 'default' : 'outline'}
                       className={riskLevel === 'low' ? 'bg-green-600 hover:bg-green-700' : ''}
                       onClick={() => setRiskLevel('low')}
                     >
                       Low
                     </Button>
-                    <Button 
-                      size="sm" 
+                    <Button
+                      size="sm"
                       variant={riskLevel === 'medium' ? 'default' : 'outline'}
                       className={riskLevel === 'medium' ? 'bg-yellow-600 hover:bg-yellow-700' : ''}
                       onClick={() => setRiskLevel('medium')}
                     >
                       Medium
                     </Button>
-                    <Button 
-                      size="sm" 
+                    <Button
+                      size="sm"
                       variant={riskLevel === 'high' ? 'default' : 'outline'}
                       className={riskLevel === 'high' ? 'bg-red-600 hover:bg-red-700' : ''}
                       onClick={() => setRiskLevel('high')}
@@ -1162,11 +1161,11 @@ export function AIStrategyPanel() {
                   </div>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  {riskLevel === 'low' ? 'Conservative strategy with lower returns but reduced risk' : 
-                   riskLevel === 'medium' ? 'Balanced approach with moderate risk and returns' : 
-                   'Aggressive strategy with higher potential returns but increased risk'}
+                  {riskLevel === 'low' ? 'Conservative strategy with lower returns but reduced risk' :
+                    riskLevel === 'medium' ? 'Balanced approach with moderate risk and returns' :
+                      'Aggressive strategy with higher potential returns but increased risk'}
                 </p>
-                
+
                 {riskLevel === 'high' && (
                   <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded text-xs text-red-800">
                     <AlertTriangle className="inline-block h-3 w-3 mr-1" />
@@ -1178,13 +1177,13 @@ export function AIStrategyPanel() {
               {/* Strategy Selection */}
               <div className="space-y-4">
                 <h4 className="font-medium">Available Strategies</h4>
-                
+
                 <div className="mb-2 p-2 bg-blue-50 border border-blue-200 rounded text-xs text-blue-800">
                   <span className="font-medium">Note:</span> Only one strategy can be active at a time. Enabling a new strategy will automatically disable any currently active strategy.
                 </div>
-                
+
                 {/* Display all strategies that match the current risk level */}
-                {strategies?.filter(strategy => 
+                {strategies?.filter(strategy =>
                   (riskLevel === 'low' && strategy.riskLevel === 'low') ||
                   (riskLevel === 'medium' && strategy.riskLevel === 'medium') ||
                   (riskLevel === 'high' && strategy.riskLevel === 'high')
@@ -1225,8 +1224,8 @@ export function AIStrategyPanel() {
                       </div>
                     </div>
                     <div className="flex items-center space-x-2">
-                      <Button 
-                        size="sm" 
+                      <Button
+                        size="sm"
                         variant="outline"
                         onClick={() => setShowArbitrageStrategyModal(true)}
                       >
@@ -1281,17 +1280,17 @@ export function AIStrategyPanel() {
                     <div className="rounded-full bg-green-100 px-2 py-1 text-xs text-green-800">Active</div>
                   )}
                 </div>
-                
+
                 {/* Only enable button if a strategy is selected */}
                 {(() => {
                   // Check if any strategy is enabled or if meme strategy is enabled
                   const hasEnabledStrategy = strategies.some(s => s.enabled) || isMemeStrategyEnabled;
-                  
+
                   // Determine if button should be in "ready" state with glow effect
                   const isReadyToTrade = hasEnabledStrategy && !isAutoTrading;
-                  
+
                   return (
-                    <Button 
+                    <Button
                       variant="default"
                       onClick={() => toggleAutoTrading(!isAutoTrading)}
                       className={`
@@ -1315,7 +1314,7 @@ export function AIStrategyPanel() {
           {isAutoTrading && (
             <div className="space-y-4 border-t pt-4">
               <h3 className="font-semibold">Trading Overview</h3>
-              
+
               <div className="space-y-4">
                 {/* Active Trading Pairs */}
                 <div className="rounded-md bg-muted p-3">
@@ -1389,7 +1388,7 @@ export function AIStrategyPanel() {
                     </div>
                   </div>
                 </div>
-              </div>              
+              </div>
             </div>
           )}
 
@@ -1398,7 +1397,7 @@ export function AIStrategyPanel() {
             <div className="mt-4 p-3 border border-yellow-200 bg-yellow-50 rounded-md">
               <h4 className="font-medium text-yellow-800">Next AI Action</h4>
               <p className="text-sm text-yellow-700 mt-1">
-                The AI will {pendingDecision.action === "BUY" ? "buy WBTC with" : "sell"} {pendingDecision.amount.toFixed(2)} {pendingDecision.action === "BUY" ? "USDC" : "WBTC"} 
+                The AI will {pendingDecision.action === "BUY" ? "buy WBTC with" : "sell"} {pendingDecision.amount.toFixed(2)} {pendingDecision.action === "BUY" ? "USDC" : "WBTC"}
                 with {Math.round(pendingDecision.confidence * 100)}% confidence.
               </p>
               <div className="mt-2 space-y-1">
@@ -1414,9 +1413,9 @@ export function AIStrategyPanel() {
 
           {/* AI Recommendation Analyst - Only shown when trading is active and there are trades */}
           {isAutoTrading && trades && (
-            <AIRecommendationAnalyst 
-              trades={trades} 
-              isVisible={isAutoTrading && trades.length > 0} 
+            <AIRecommendationAnalyst
+              trades={trades}
+              isVisible={isAutoTrading && trades.length > 0}
               activeStrategy={strategies.find(s => s.enabled)}
             />
           )}
@@ -1428,11 +1427,10 @@ export function AIStrategyPanel() {
               <div className="rounded-md bg-muted p-3">
                 <p className="mb-2">{analysis.recommendation}</p>
                 <div className="mb-2 flex items-center space-x-2">
-                  <span className={`rounded-full px-2 py-1 text-xs ${
-                    analysis.action === "BUY" ? "bg-green-100 text-green-800" :
+                  <span className={`rounded-full px-2 py-1 text-xs ${analysis.action === "BUY" ? "bg-green-100 text-green-800" :
                     analysis.action === "SELL" ? "bg-red-100 text-red-800" :
-                    "bg-yellow-100 text-yellow-800"
-                  }`}>
+                      "bg-yellow-100 text-yellow-800"
+                    }`}>
                     {analysis.action}
                   </span>
                   <span className="text-sm text-muted-foreground">
@@ -1467,10 +1465,10 @@ export function AIStrategyPanel() {
                   <tbody>
                     {trades.slice(0, 5).map((trade, i) => {
                       const isBuy = trade.tokenAId === 1; // Assuming tokenId 1 is USDC
-                      const profitLoss = isBuy 
+                      const profitLoss = isBuy
                         ? ((Number(trade.amountB) / Number(trade.amountA)) - 1) * 100
                         : ((Number(trade.amountA) / Number(trade.amountB)) - 1) * 100;
-                      
+
                       return (
                         <tr key={i} className="border-t border-border">
                           <td className="px-4 py-2">{new Date(trade.createdAt || Date.now()).toLocaleDateString()}</td>
@@ -1504,18 +1502,18 @@ export function AIStrategyPanel() {
           )}
 
           {/* Add the modals */}
-          <MemeStrategyModal 
-            open={showMemeStrategy} 
-            onOpenChange={setShowMemeStrategy} 
-            onSave={handleMemeStrategyConfigSave} 
+          <MemeStrategyModal
+            open={showMemeStrategy}
+            onOpenChange={setShowMemeStrategy}
+            onSave={handleMemeStrategyConfigSave}
           />
-          
-          <LimitOrderStrategyModal 
-            open={showLimitOrderConfig} 
-            onOpenChange={setShowLimitOrderConfig} 
-            onSave={handleLimitOrderConfigSave} 
+
+          <LimitOrderStrategyModal
+            open={showLimitOrderConfig}
+            onOpenChange={setShowLimitOrderConfig}
+            onSave={handleLimitOrderConfigSave}
           />
-          
+
           <ArbitrageStrategyModal
             open={showArbitrageStrategyModal}
             onOpenChange={setShowArbitrageStrategyModal}
@@ -1568,13 +1566,13 @@ function calculateWinRate(trades: Trade[]): number {
 
 function calculateAvgProfit(trades: Trade[]): number {
   if (!trades.length) return 0;
-  
+
   let totalProfit = 0;
   for (const trade of trades) {
     const profit = ((Number(trade.amountB) - Number(trade.amountA)) / Number(trade.amountA)) * 100;
     totalProfit += profit;
   }
-  
+
   // Calculate average
   const avgProfit = totalProfit / trades.length;
   return Math.round(avgProfit * 100) / 100;

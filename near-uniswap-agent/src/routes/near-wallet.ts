@@ -130,40 +130,32 @@ router.post("/swap", async (req: Request, res: Response) => {
         // Validate input
         const { chainId, buyToken, sellToken, sellAmountBeforeFee } = req.body;
 
-        if (!chainId || !buyToken || !sellToken || !sellAmountBeforeFee) {
-            console.error("Missing required parameters", { chainId, buyToken, sellToken, sellAmountBeforeFee });
+        if (!buyToken) {
+            console.error("Missing required parameters", { buyToken });
             return res.status(400).json({
-                error: "Missing required parameters: chainId, buyToken, sellToken, and sellAmountBeforeFee are required",
-                providedParams: { chainId, buyToken, sellToken, sellAmountBeforeFee }
+                error: "Missing required parameter: buyToken is required",
+                providedParams: { chainId, buyToken, sellToken, sellAmountBeforeFee },
+                nearAccountId
             });
         }
 
-        // Convert chain ID to number if it's a string
-        const numericChainId = typeof chainId === 'string' ? parseInt(chainId, 10) : chainId;
+        // Set default values for missing parameters
+        const validChainId = chainId || 8453; // Default to Base chain
+        const validSellToken = sellToken || "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"; // Default to USDC on Base
+        const validSellAmount = sellAmountBeforeFee || "5000000"; // Default to 5 USDC with 6 decimals
 
-        // Default to Base chain if invalid
-        const validChainId = isNaN(numericChainId) ? 8453 : numericChainId;
-        console.log(`Using chain ID: ${validChainId}`);
+        console.log(`Using parameters: chainId=${validChainId}, buyToken=${buyToken}, sellToken=${validSellToken}, sellAmount=${validSellAmount}`);
 
         // Get the Safe address for the NEAR account
         const safeAddress = getSafeAddressForNearAccount(nearAccountId, validChainId);
         console.log(`Using Safe address ${safeAddress} for NEAR account ${nearAccountId}`);
 
         try {
-            // Resolve token addresses (for both buy and sell tokens)
-            const [resolvedBuyToken, resolvedSellToken] = await Promise.all([
-                resolveTokenAddress(buyToken, validChainId),
-                resolveTokenAddress(sellToken, validChainId)
-            ]);
-
-            console.log(`Resolved buyToken ${buyToken} to ${resolvedBuyToken}`);
-            console.log(`Resolved sellToken ${sellToken} to ${resolvedSellToken}`);
-
             // CRITICAL: Fetch token data from DexScreener first, before any transaction attempt
-            console.log(`Fetching token data from DexScreener for ${resolvedBuyToken} on chain ${validChainId}...`);
+            console.log(`Fetching token data from DexScreener for ${buyToken} on chain ${validChainId}...`);
 
             // Make API call to fetch token data
-            const dexScreenerUrl = `https://api.dexscreener.com/latest/dex/tokens/${resolvedBuyToken}`;
+            const dexScreenerUrl = `https://api.dexscreener.com/latest/dex/tokens/${buyToken}`;
             console.log(`Calling DexScreener API: ${dexScreenerUrl}`);
 
             let tokenData;
@@ -173,8 +165,8 @@ router.post("/swap", async (req: Request, res: Response) => {
 
                 // Check if we got valid data
                 if (!data || !data.pairs || data.pairs.length === 0) {
-                    return res.status(404).json({
-                        error: `No data found for the specified token on DexScreener (tokenAddress: ${resolvedBuyToken}, chainId: ${validChainId})`,
+                    return res.status(200).json({
+                        error: `No data found for the specified token on DexScreener (tokenAddress: ${buyToken}, chainId: ${validChainId})`,
                         nearAccountId,
                         safeAddress
                     });
@@ -189,8 +181,8 @@ router.post("/swap", async (req: Request, res: Response) => {
                 );
 
                 if (chainPairs.length === 0) {
-                    return res.status(404).json({
-                        error: `No pairs found for token on chain ${validChainId} (tokenAddress: ${resolvedBuyToken}, availableChains: ${data.pairs.map((p: any) => p.chainId).join(', ')})`,
+                    return res.status(200).json({
+                        error: `No pairs found for token on chain ${validChainId} (tokenAddress: ${buyToken}, availableChains: ${data.pairs.map((p: any) => p.chainId).join(', ')})`,
                         nearAccountId,
                         safeAddress
                     });
@@ -204,7 +196,7 @@ router.post("/swap", async (req: Request, res: Response) => {
                 // Get the token data from the first (best) pair
                 const pair = sortedPairs[0];
                 tokenData = {
-                    address: resolvedBuyToken,
+                    address: buyToken,
                     symbol: pair.baseToken.symbol,
                     name: pair.baseToken.name,
                     priceUsd: pair.priceUsd,
@@ -219,28 +211,25 @@ router.post("/swap", async (req: Request, res: Response) => {
                 console.log("DexScreener data fetched successfully:", JSON.stringify(tokenData, null, 2));
             } catch (error) {
                 console.error("Error fetching token data from DexScreener:", error);
-                return res.status(500).json({
-                    error: `Failed to fetch token data from DexScreener: ${error instanceof Error ? error.message : String(error)}`,
-                    nearAccountId,
-                    safeAddress
-                });
+                // Continue with the swap even if we couldn't fetch token data
+                console.log("Continuing with swap despite error fetching token data");
             }
 
             // Normalize amount - handle decimal strings
-            let normalizedAmount = sellAmountBeforeFee;
-            if (typeof sellAmountBeforeFee === 'string' && sellAmountBeforeFee.includes('.')) {
+            let normalizedAmount = validSellAmount;
+            if (typeof validSellAmount === 'string' && validSellAmount.includes('.')) {
                 try {
-                    const floatAmount = parseFloat(sellAmountBeforeFee);
+                    const floatAmount = parseFloat(validSellAmount);
                     if (!isNaN(floatAmount)) {
                         // Assuming 6 decimals for USDC, 18 for others
-                        const decimals = resolvedSellToken.toLowerCase() === TOKEN_ADDRESS_MAP.USDC[8453].toLowerCase() ? 6 : 18;
+                        const decimals = validSellToken.toLowerCase() === TOKEN_ADDRESS_MAP.USDC[8453].toLowerCase() ? 6 : 18;
                         normalizedAmount = Math.floor(floatAmount * Math.pow(10, decimals)).toString();
-                        console.log(`Converted ${sellAmountBeforeFee} to ${normalizedAmount} (${decimals} decimals)`);
+                        console.log(`Converted ${validSellAmount} to ${normalizedAmount} (${decimals} decimals)`);
                     }
                 } catch (e) {
                     console.error("Error converting amount:", e);
                     return res.status(400).json({
-                        error: `Invalid amount format: ${sellAmountBeforeFee}. Please provide a valid number.`,
+                        error: `Invalid amount format: ${validSellAmount}. Please provide a valid number.`,
                         tokenData,
                         nearAccountId,
                         safeAddress
@@ -252,8 +241,8 @@ router.post("/swap", async (req: Request, res: Response) => {
             const quoteRequest = {
                 chainId: validChainId,
                 quoteRequest: {
-                    sellToken: getAddress(resolvedSellToken),
-                    buyToken: getAddress(resolvedBuyToken),
+                    sellToken: getAddress(validSellToken),
+                    buyToken: getAddress(buyToken),
                     amount: BigInt(normalizedAmount),
                     walletAddress: getAddress(safeAddress),
                 }
@@ -265,9 +254,6 @@ router.post("/swap", async (req: Request, res: Response) => {
             const txData = await orderRequestFlow(quoteRequest);
             console.log("Transaction data created:", JSON.stringify(txData, null, 2));
 
-            // Execute the transaction with the NEAR wallet
-            console.log("Executing transaction with NEAR wallet...");
-
             // Convert the transaction data to ExtendedSignRequestData format
             const extendedTxData = {
                 ...txData.transaction,
@@ -275,7 +261,9 @@ router.post("/swap", async (req: Request, res: Response) => {
                 metaTransactions: [] // Initialize with empty array
             };
 
-            const result = await executeWithNearWallet(extendedTxData, nearAccountId, validChainId);
+            // Generate the signing URL
+            const signUrl = `https://wallet.bitte.ai/sign-evm?evmTx=${encodeURIComponent(JSON.stringify(extendedTxData))}`;
+            console.log("Generated signing URL:", signUrl);
 
             return res.status(200).json({
                 success: true,
@@ -284,8 +272,9 @@ router.post("/swap", async (req: Request, res: Response) => {
                 tokenData,
                 transaction: {
                     ...txData,
-                    executionResult: result
-                }
+                    signUrl
+                },
+                message: `Please sign the transaction using your NEAR wallet by visiting the signing URL.`
             });
         } catch (error) {
             console.error("Error in swap flow:", error);
@@ -296,8 +285,8 @@ router.post("/swap", async (req: Request, res: Response) => {
                     safeAddress,
                     chainId: validChainId,
                     buyToken,
-                    sellToken,
-                    sellAmountBeforeFee
+                    sellToken: validSellToken,
+                    sellAmountBeforeFee: validSellAmount
                 }
             });
         }
@@ -305,6 +294,182 @@ router.post("/swap", async (req: Request, res: Response) => {
         console.error("Error in near-wallet/swap endpoint:", error);
         const errorMessage = error instanceof Error ? error.message : String(error);
         return res.status(400).json({
+            error: `Error creating swap transaction: ${errorMessage}`
+        });
+    }
+});
+
+/**
+ * POST /near-swap
+ * Simplified endpoint for swapping tokens using a NEAR wallet
+ */
+router.post("/near-swap", async (req: Request, res: Response) => {
+    try {
+        console.log("NEAR wallet near-swap endpoint called with body:", JSON.stringify(req.body, null, 2));
+
+        // Check if NEAR wallet integration is enabled
+        if (process.env.USE_NEAR_WALLET !== "true") {
+            console.error("NEAR wallet integration not enabled");
+            return res.status(200).json({
+                error: "NEAR wallet integration is not enabled. Set USE_NEAR_WALLET=true in the environment."
+            });
+        }
+
+        // Get the NEAR account ID
+        const nearAccountId = getNearAccountId();
+        if (!nearAccountId) {
+            console.error("No NEAR account ID found");
+            return res.status(200).json({
+                error: "No NEAR account ID found. Make sure BITTE_KEY is properly configured."
+            });
+        }
+
+        // Extract token address from request body or query parameters
+        const tokenAddress = req.body.tokenAddress || req.query.tokenAddress || req.body.token || req.query.token;
+
+        if (!tokenAddress) {
+            console.error("Missing token address");
+            return res.status(200).json({
+                error: "Missing token address. Please provide a token address to swap to.",
+                nearAccountId
+            });
+        }
+
+        // Set default values
+        const chainId = req.body.chainId || req.query.chainId || 8453; // Default to Base chain
+        const sellToken = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"; // USDC on Base
+        const sellAmount = req.body.amount || req.query.amount || "1000000"; // Default to 1 USDC (6 decimals)
+
+        console.log(`Using parameters: chainId=${chainId}, buyToken=${tokenAddress}, sellToken=${sellToken}, sellAmount=${sellAmount}`);
+
+        // Get the Safe address for the NEAR account
+        const safeAddress = getSafeAddressForNearAccount(nearAccountId, Number(chainId));
+        console.log(`Using Safe address ${safeAddress} for NEAR account ${nearAccountId}`);
+
+        try {
+            // CRITICAL: Fetch token data from DexScreener first
+            console.log(`Fetching token data from DexScreener for ${tokenAddress} on chain ${chainId}...`);
+
+            // Make API call to fetch token data
+            const dexScreenerUrl = `https://api.dexscreener.com/latest/dex/tokens/${tokenAddress}`;
+            console.log(`Calling DexScreener API: ${dexScreenerUrl}`);
+
+            let tokenData;
+            try {
+                const response = await axios.get(dexScreenerUrl);
+                const data = response.data;
+
+                // Check if we got valid data
+                if (!data || !data.pairs || data.pairs.length === 0) {
+                    return res.status(200).json({
+                        error: `No data found for the specified token on DexScreener (tokenAddress: ${tokenAddress}, chainId: ${chainId})`,
+                        nearAccountId,
+                        safeAddress
+                    });
+                }
+
+                // Convert chainId to string for comparison
+                const chainIdString = chainId.toString();
+
+                // Filter pairs for the specified chain
+                const chainPairs = data.pairs.filter(
+                    (pair: any) => pair.chainId === chainIdString
+                );
+
+                if (chainPairs.length === 0) {
+                    return res.status(200).json({
+                        error: `No pairs found for token on chain ${chainId} (tokenAddress: ${tokenAddress}, availableChains: ${data.pairs.map((p: any) => p.chainId).join(', ')})`,
+                        nearAccountId,
+                        safeAddress
+                    });
+                }
+
+                // Sort pairs by liquidity to get the best pair
+                const sortedPairs = chainPairs.sort((a: any, b: any) => {
+                    return (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0);
+                });
+
+                // Get the token data from the first (best) pair
+                const pair = sortedPairs[0];
+                tokenData = {
+                    address: tokenAddress,
+                    symbol: pair.baseToken.symbol,
+                    name: pair.baseToken.name,
+                    priceUsd: pair.priceUsd,
+                    priceNative: pair.priceNative,
+                    priceChange: pair.priceChange || {},
+                    liquidity: pair.liquidity || {},
+                    volume: pair.volume || {},
+                    pairAddress: pair.pairAddress,
+                    pairUrl: pair.url
+                };
+
+                console.log("DexScreener data fetched successfully:", JSON.stringify(tokenData, null, 2));
+            } catch (error) {
+                console.error("Error fetching token data from DexScreener:", error);
+                // Continue with the swap even if we couldn't fetch token data
+                console.log("Continuing with swap despite error fetching token data");
+            }
+
+            // Create the quote request for Uniswap
+            const quoteRequest = {
+                chainId: Number(chainId),
+                quoteRequest: {
+                    sellToken: getAddress(sellToken),
+                    buyToken: getAddress(tokenAddress),
+                    amount: BigInt(sellAmount),
+                    walletAddress: getAddress(safeAddress),
+                }
+            };
+
+            console.log("Creating swap transaction with quote request:", JSON.stringify(quoteRequest, (_, v) => typeof v === 'bigint' ? v.toString() : v, 2));
+
+            // Get the transaction data
+            const txData = await orderRequestFlow(quoteRequest);
+            console.log("Transaction data created:", JSON.stringify(txData, null, 2));
+
+            // Convert the transaction data to ExtendedSignRequestData format
+            const extendedTxData = {
+                ...txData.transaction,
+                from: safeAddress,
+                metaTransactions: [] // Initialize with empty array
+            };
+
+            // Generate the signing URL
+            const signUrl = `https://wallet.bitte.ai/sign-evm?evmTx=${encodeURIComponent(JSON.stringify(extendedTxData))}`;
+            console.log("Generated signing URL:", signUrl);
+
+            return res.status(200).json({
+                success: true,
+                message: "Swap transaction prepared successfully",
+                nearAccountId,
+                safeAddress,
+                tokenData,
+                transaction: {
+                    ...txData,
+                    signUrl
+                },
+                signUrl,
+                instructions: "Please sign the transaction using your NEAR wallet by visiting the signing URL."
+            });
+        } catch (error) {
+            console.error("Error in swap flow:", error);
+            return res.status(200).json({
+                error: `Swap failed: ${error instanceof Error ? error.message : String(error)}`,
+                details: {
+                    nearAccountId,
+                    safeAddress,
+                    chainId,
+                    buyToken: tokenAddress,
+                    sellToken,
+                    sellAmount
+                }
+            });
+        }
+    } catch (error: unknown) {
+        console.error("Error in near-wallet/near-swap endpoint:", error);
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        return res.status(200).json({
             error: `Error creating swap transaction: ${errorMessage}`
         });
     }

@@ -132,7 +132,7 @@ router.get("/token-price", handleTokenPriceRequest);
  * This function handles the buy-dip logic and returns the response
  */
 async function buyDipLogic(req: Request) {
-  console.log("💰 BUY-DIP endpoint called with body:", req.body);
+  console.log("💰 BUY-DIP endpoint called with body:", JSON.stringify(req.body, null, 2));
 
   // Handle both direct buy-dip format and swap format
   let chainId, tokenAddress, sellTokenAddress, sellAmount, walletAddress;
@@ -147,18 +147,18 @@ async function buyDipLogic(req: Request) {
   if (req.body.safeAddress && req.body.buyToken) {
     console.log("Converting from swap format to buy-dip format");
     // Convert numeric chainId to string format if needed
-    chainId = req.body.chainId;
+    chainId = req.body.chainId || "base";
     tokenAddress = req.body.buyToken;
-    sellTokenAddress = req.body.sellToken;
-    sellAmount = req.body.sellAmountBeforeFee;
+    sellTokenAddress = req.body.sellToken || "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"; // Default to USDC
+    sellAmount = req.body.sellAmountBeforeFee || "1000000"; // Default to 1 USDC
     walletAddress = req.body.safeAddress;
   } else {
     // Use direct buy-dip format
     const params = req.body;
-    chainId = params.chainId;
+    chainId = params.chainId || "base";
     tokenAddress = params.tokenAddress;
-    sellTokenAddress = params.sellTokenAddress;
-    sellAmount = params.sellAmount;
+    sellTokenAddress = params.sellTokenAddress || "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"; // Default to USDC
+    sellAmount = params.sellAmount || "1000000"; // Default to 1 USDC
     walletAddress = params.walletAddress;
   }
 
@@ -174,7 +174,8 @@ async function buyDipLogic(req: Request) {
 
   // Validate required parameters
   if (!chainId) {
-    throw new Error("Missing chainId parameter");
+    chainId = "base"; // Default to Base chain
+    console.log("Using default chainId:", chainId);
   }
 
   if (!tokenAddress) {
@@ -182,11 +183,13 @@ async function buyDipLogic(req: Request) {
   }
 
   if (!sellTokenAddress) {
-    throw new Error("Missing sellTokenAddress parameter");
+    sellTokenAddress = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"; // USDC on Base
+    console.log("Using default sellTokenAddress (USDC):", sellTokenAddress);
   }
 
   if (!sellAmount) {
-    throw new Error("Missing sellAmount parameter");
+    sellAmount = "1000000"; // 1 USDC with 6 decimals
+    console.log("Using default sellAmount (1 USDC):", sellAmount);
   }
 
   // Determine wallet address for NEAR integration if not explicitly provided
@@ -326,6 +329,22 @@ function handleBuyDipRequest(req: Request, res: Response, next: NextFunction) {
   let nearAccountId = null;
   let safeAddress = null;
 
+  // Set default values for missing parameters
+  if (!req.body.chainId) {
+    req.body.chainId = "base"; // Default to Base chain
+    console.log("Setting default chainId to 'base'");
+  }
+
+  if (!req.body.sellTokenAddress) {
+    req.body.sellTokenAddress = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"; // USDC on Base
+    console.log("Setting default sellTokenAddress to USDC on Base");
+  }
+
+  if (!req.body.sellAmount) {
+    req.body.sellAmount = "1000000"; // 1 USDC with 6 decimals
+    console.log("Setting default sellAmount to 1 USDC");
+  }
+
   if (process.env.USE_NEAR_WALLET === "true") {
     try {
       nearAccountId = getNearAccountId();
@@ -340,12 +359,16 @@ function handleBuyDipRequest(req: Request, res: Response, next: NextFunction) {
         // If using NEAR wallet, ensure we have the wallet address in the request
         if (!req.body.walletAddress || req.body.walletAddress === "0x0") {
           req.body.walletAddress = safeAddress;
+          console.log("Setting walletAddress to NEAR Safe address:", safeAddress);
         }
       }
     } catch (nearError) {
       console.error("Error getting NEAR wallet info:", nearError);
     }
   }
+
+  // Log the request body after setting defaults
+  console.log("Request body after setting defaults:", JSON.stringify(req.body, null, 2));
 
   // Now try to fetch token data directly if we have a token address
   if (req.body.tokenAddress && !req.body.tokenData) {
@@ -606,6 +629,30 @@ function handleExecuteSwapRequest(req: Request, res: Response, next: NextFunctio
     let isUsingNearWallet = false;
     let nearAccountId = null;
 
+    // Set default values for missing parameters
+    if (!chainId) {
+      chainId = "base"; // Default to Base chain
+      console.log("Setting default chainId to 'base'");
+    }
+
+    if (!tokenAddress) {
+      return res.status(400).json({
+        error: "Missing tokenAddress parameter. Please provide a token address to buy.",
+        isUsingNearWallet,
+        nearAccountId
+      });
+    }
+
+    if (!sellTokenAddress) {
+      sellTokenAddress = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"; // USDC on Base
+      console.log("Setting default sellTokenAddress to USDC on Base");
+    }
+
+    if (!sellAmount) {
+      sellAmount = "1000000"; // 1 USDC with 6 decimals
+      console.log("Setting default sellAmount to 1 USDC");
+    }
+
     // Special handling for NEAR wallet integration
     // Check if walletAddress is missing, "0x0", or similar placeholder
     if (((!walletAddress || walletAddress === "0x0" || walletAddress === "0x0000000000000000000000000000000000000000")
@@ -629,60 +676,194 @@ function handleExecuteSwapRequest(req: Request, res: Response, next: NextFunctio
       }
     }
 
-    // Validate required parameters
-    if (!chainId) {
-      res.status(400).json({ error: "Missing chainId parameter" });
-      return;
-    }
-    if (!tokenAddress) {
-      res.status(400).json({ error: "Missing tokenAddress parameter" });
-      return;
-    }
-    if (!sellTokenAddress) {
-      res.status(400).json({ error: "Missing sellTokenAddress parameter" });
-      return;
-    }
-    if (!sellAmount) {
-      res.status(400).json({ error: "Missing sellAmount parameter" });
-      return;
-    }
     if (!walletAddress) {
-      res.status(400).json({ error: "Missing walletAddress parameter" });
-      return;
+      return res.status(400).json({
+        error: "Missing walletAddress parameter. Please provide a wallet address or use a NEAR wallet.",
+        isUsingNearWallet,
+        nearAccountId
+      });
     }
 
-    console.log("Executing swap transaction...");
+    // CRITICAL: Fetch token data from DexScreener first, before any transaction attempt
+    console.log(`Fetching token data from DexScreener for ${tokenAddress} on chain ${chainId}...`);
 
-    // Call the dexscreener-uniswap tool to perform the swap
-    dexscreenerUniswap.buyOnPriceDip({
-      chainId,
-      tokenAddress,
-      sellTokenAddress,
-      sellAmount,
-      walletAddress,
-      forceSwap: true // Force the swap since the user has explicitly requested it
-    })
-      .then(result => {
-        // Return success response with transaction result
-        res.status(200).json({
-          message: "Swap transaction executed successfully",
-          transaction: result,
-          isUsingNearWallet,
-          nearAccountId
+    // Make API call to fetch token data
+    const dexScreenerUrl = `https://api.dexscreener.com/latest/dex/tokens/${tokenAddress}`;
+    console.log(`Calling DexScreener API: ${dexScreenerUrl}`);
+
+    axios.get(dexScreenerUrl)
+      .then(response => {
+        const data = response.data;
+
+        // Check if we got valid data
+        if (!data || !data.pairs || data.pairs.length === 0) {
+          return res.status(200).json({
+            error: `No data found for the specified token on DexScreener (tokenAddress: ${tokenAddress}, chainId: ${chainId})`,
+            isUsingNearWallet,
+            nearAccountId,
+            safeAddress: walletAddress
+          });
+        }
+
+        // Convert chainId to string for comparison
+        const chainIdString = chainId.toString();
+
+        // Filter pairs for the specified chain
+        const chainPairs = data.pairs.filter(
+          (pair: any) => pair.chainId === chainIdString
+        );
+
+        if (chainPairs.length === 0) {
+          return res.status(200).json({
+            error: `No pairs found for token on chain ${chainId} (tokenAddress: ${tokenAddress}, availableChains: ${data.pairs.map((p: any) => p.chainId).join(', ')})`,
+            isUsingNearWallet,
+            nearAccountId,
+            safeAddress: walletAddress
+          });
+        }
+
+        // Sort pairs by liquidity to get the best pair
+        const sortedPairs = chainPairs.sort((a: any, b: any) => {
+          return (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0);
         });
+
+        // Get the token data from the first (best) pair
+        const pair = sortedPairs[0];
+        const tokenData = {
+          address: tokenAddress,
+          symbol: pair.baseToken.symbol,
+          name: pair.baseToken.name,
+          priceUsd: pair.priceUsd,
+          priceNative: pair.priceNative,
+          priceChange: pair.priceChange || {},
+          liquidity: pair.liquidity || {},
+          volume: pair.volume || {},
+          pairAddress: pair.pairAddress,
+          pairUrl: pair.url
+        };
+
+        console.log("DexScreener data fetched successfully:", JSON.stringify(tokenData, null, 2));
+
+        // Now proceed with the swap
+        console.log("Executing swap transaction...");
+
+        // Call the dexscreener-uniswap tool to perform the swap
+        dexscreenerUniswap.buyOnPriceDip({
+          chainId,
+          tokenAddress,
+          sellTokenAddress,
+          sellAmount,
+          walletAddress,
+          forceSwap: true // Force the swap since the user has explicitly requested it
+        })
+          .then(result => {
+            // Check if we have a signUrl in the result
+            let signUrl: string | null = null;
+            if (typeof result.signUrl === 'string') {
+              signUrl = result.signUrl;
+            }
+
+            // If not, generate one
+            if (!signUrl && isUsingNearWallet && result.transaction) {
+              // Convert the transaction data to ExtendedSignRequestData format if needed
+              const txData = result.transaction || {};
+              const extendedTxData = {
+                ...txData,
+                from: walletAddress,
+                metaTransactions: [] // Initialize with empty array
+              };
+
+              // Generate the signing URL
+              signUrl = `https://wallet.bitte.ai/sign-evm?evmTx=${encodeURIComponent(JSON.stringify(extendedTxData))}`;
+              console.log("Generated signing URL:", signUrl);
+            }
+
+            // Return success response with transaction result and signing URL
+            res.status(200).json({
+              message: "Swap transaction prepared successfully",
+              transaction: result,
+              tokenData,
+              isUsingNearWallet,
+              nearAccountId,
+              signUrl,
+              instructions: signUrl
+                ? "Please sign the transaction using your NEAR wallet by visiting the signing URL."
+                : "Transaction has been submitted."
+            });
+          })
+          .catch(error => {
+            console.error("Error executing swap:", error);
+            res.status(200).json({
+              error: error instanceof Error ? error.message : "Internal server error",
+              tokenData,
+              isUsingNearWallet,
+              nearAccountId,
+              walletAddress
+            });
+          });
       })
       .catch(error => {
-        console.error("Error executing swap:", error);
-        res.status(500).json({
-          error: error instanceof Error ? error.message : "Internal server error",
-          isUsingNearWallet,
-          nearAccountId,
-          walletAddress
-        });
+        console.error("Error fetching token data:", error);
+
+        // Continue with the swap even if we couldn't fetch token data
+        console.log("Continuing with swap despite error fetching token data");
+
+        // Call the dexscreener-uniswap tool to perform the swap
+        dexscreenerUniswap.buyOnPriceDip({
+          chainId,
+          tokenAddress,
+          sellTokenAddress,
+          sellAmount,
+          walletAddress,
+          forceSwap: true // Force the swap since the user has explicitly requested it
+        })
+          .then(result => {
+            // Check if we have a signUrl in the result
+            let signUrl: string | null = null;
+            if (typeof result.signUrl === 'string') {
+              signUrl = result.signUrl;
+            }
+
+            // If not, generate one
+            if (!signUrl && isUsingNearWallet && result.transaction) {
+              // Convert the transaction data to ExtendedSignRequestData format if needed
+              const txData = result.transaction || {};
+              const extendedTxData = {
+                ...txData,
+                from: walletAddress,
+                metaTransactions: [] // Initialize with empty array
+              };
+
+              // Generate the signing URL
+              signUrl = `https://wallet.bitte.ai/sign-evm?evmTx=${encodeURIComponent(JSON.stringify(extendedTxData))}`;
+              console.log("Generated signing URL:", signUrl);
+            }
+
+            // Return success response with transaction result and signing URL
+            res.status(200).json({
+              message: "Swap transaction prepared successfully (without token data)",
+              transaction: result,
+              isUsingNearWallet,
+              nearAccountId,
+              signUrl,
+              instructions: signUrl
+                ? "Please sign the transaction using your NEAR wallet by visiting the signing URL."
+                : "Transaction has been submitted."
+            });
+          })
+          .catch(error => {
+            console.error("Error executing swap:", error);
+            res.status(200).json({
+              error: error instanceof Error ? error.message : "Internal server error",
+              isUsingNearWallet,
+              nearAccountId,
+              walletAddress
+            });
+          });
       });
   } catch (error) {
     console.error("Error in execute-swap endpoint:", error);
-    res.status(500).json({
+    res.status(200).json({
       error: error instanceof Error ? error.message : "Internal server error"
     });
   }
@@ -711,8 +892,8 @@ router.post("/near-buy-dip", async (req: Request, res: Response) => {
 
     // Validate required parameters
     if (!tokenAddress) {
-      return res.status(400).json({
-        error: "Missing tokenAddress parameter",
+      return res.status(200).json({
+        error: "Missing tokenAddress parameter. Please provide a token address to check.",
         nearInfo: {
           isUsingNearWallet: true,
           nearAccountId: getNearAccountId()
@@ -727,7 +908,7 @@ router.post("/near-buy-dip", async (req: Request, res: Response) => {
     try {
       nearAccountId = getNearAccountId();
       if (!nearAccountId) {
-        return res.status(400).json({
+        return res.status(200).json({
           error: "No NEAR account ID found. Make sure BITTE_KEY is properly configured."
         });
       }
@@ -740,7 +921,7 @@ router.post("/near-buy-dip", async (req: Request, res: Response) => {
       console.log(`Using NEAR wallet address: ${safeAddress} for account ${nearAccountId}`);
     } catch (error) {
       console.error("Error getting NEAR wallet info:", error);
-      return res.status(500).json({
+      return res.status(200).json({
         error: `Failed to get NEAR wallet info: ${error instanceof Error ? error.message : String(error)}`
       });
     }
@@ -758,7 +939,7 @@ router.post("/near-buy-dip", async (req: Request, res: Response) => {
 
       // Check if we got valid data
       if (!data || !data.pairs || data.pairs.length === 0) {
-        return res.status(404).json({
+        return res.status(200).json({
           error: `No data found for the specified token on DexScreener (tokenAddress: ${tokenAddress}, chainId: ${chainId})`,
           nearInfo: {
             isUsingNearWallet: true,
@@ -777,7 +958,7 @@ router.post("/near-buy-dip", async (req: Request, res: Response) => {
       );
 
       if (chainPairs.length === 0) {
-        return res.status(404).json({
+        return res.status(200).json({
           error: `No pairs found for token on chain ${chainId} (tokenAddress: ${tokenAddress}, availableChains: ${data.pairs.map((p: any) => p.chainId).join(', ')})`,
           nearInfo: {
             isUsingNearWallet: true,
@@ -853,7 +1034,7 @@ router.post("/near-buy-dip", async (req: Request, res: Response) => {
 
     } catch (error) {
       console.error("Error fetching token data from DexScreener:", error);
-      return res.status(500).json({
+      return res.status(200).json({
         error: `Failed to fetch token data from DexScreener: ${error instanceof Error ? error.message : String(error)}`,
         nearInfo: {
           isUsingNearWallet: true,
@@ -864,7 +1045,7 @@ router.post("/near-buy-dip", async (req: Request, res: Response) => {
     }
   } catch (error) {
     console.error("Error in near-buy-dip endpoint:", error);
-    return res.status(500).json({
+    return res.status(200).json({
       error: `Internal server error: ${error instanceof Error ? error.message : String(error)}`
     });
   }

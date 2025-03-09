@@ -1,11 +1,26 @@
 import { ethers } from 'ethers';
 import { Token } from '@uniswap/sdk-core';
 import { Pool } from '@uniswap/v3-sdk';
-import { WETH, WBTC, USDC, USDT } from './AlphaRouterService';
+import { WETH, WBTC, USDC, USDT, providers } from './AlphaRouterService';
+import { CHAIN_IDS, getContractsForChain } from '@/lib/constants';
 
-const RPC_URL = import.meta.env.VITE_RPC_URL;
-const V3_FACTORY_ADDRESS = import.meta.env.VITE_UNISWAP_FACTORY_ADDRESS;
+const DEFAULT_CHAIN_ID = parseInt(import.meta.env.VITE_CHAIN_ID);
 const POOL_FEES = [500, 3000, 10000]; // 0.05%, 0.3%, 1%
+
+// Use the current provider from AlphaRouterService
+let currentProvider = providers[DEFAULT_CHAIN_ID];
+let currentContracts = getContractsForChain(DEFAULT_CHAIN_ID);
+
+// Function to update the current provider
+export const updateDexStatsProvider = (chainId: number) => {
+  if (providers[chainId]) {
+    currentProvider = providers[chainId];
+    currentContracts = getContractsForChain(chainId);
+    console.log(`DexStatsService: Switched to chain ID ${chainId}`);
+  } else {
+    console.error(`DexStatsService: No provider available for chain ID ${chainId}`);
+  }
+};
 
 interface PoolData {
   address: string;
@@ -39,14 +54,14 @@ class DexStatsService {
     stats: DexStats | null;
     lastUpdate: number;
   } = {
-    stats: null,
-    lastUpdate: 0
-  };
+      stats: null,
+      lastUpdate: 0
+    };
 
   private CACHE_DURATION = 30000; // 30 seconds
 
   constructor() {
-    this.provider = new ethers.providers.JsonRpcProvider(RPC_URL);
+    this.provider = currentProvider;
   }
 
   async getStats(userAddress?: string): Promise<DexStats> {
@@ -62,11 +77,10 @@ class DexStatsService {
     }
 
     const factoryContract = new ethers.Contract(
-      V3_FACTORY_ADDRESS,
+      currentContracts.UNISWAP_FACTORY,
       [
         'function getPool(address tokenA, address tokenB, uint24 fee) external view returns (address pool)',
-        'function allPools(uint256) external view returns (address)',
-        'function allPoolsLength() external view returns (uint256)'
+        'function allPairsLength() external view returns (uint)'
       ],
       this.provider
     );
@@ -105,7 +119,7 @@ class DexStatsService {
     // Batch all pool data queries
     const poolDataQueries = validPools.map(async (pool) => {
       if (!pool) return null;
-      
+
       const poolContract = new ethers.Contract(
         pool.address,
         [
@@ -130,13 +144,13 @@ class DexStatsService {
         try {
           // Try with a shorter time window first (1 hour)
           observations = await poolContract.observe([0, 3600]);
-          
+
           // Calculate volume based on 1-hour data and extrapolate to 24h
           const tickChange = Math.abs(observations.tickCumulatives[1].sub(observations.tickCumulatives[0]).toNumber());
           volume = liquidity.mul(tickChange).div(1e6).mul(24);
         } catch (observeError) {
           console.warn(`Could not fetch historical data for pool ${pool.address}:`, observeError);
-          
+
           // Fallback: estimate volume based on liquidity and current tick
           // This is a rough approximation assuming 5% of liquidity is traded daily
           volume = liquidity.mul(5).div(100);
@@ -209,10 +223,10 @@ class DexStatsService {
       trades.forEach(trade => {
         const amount0 = ethers.BigNumber.from(trade.args.amount0);
         const amount1 = ethers.BigNumber.from(trade.args.amount1);
-        
+
         // Add absolute values to total volume
         totalVolume = totalVolume.add(amount0.abs()).add(amount1.abs());
-        
+
         // Simple P&L calculation (can be improved)
         profitLoss = profitLoss.add(amount1).sub(amount0);
       });
