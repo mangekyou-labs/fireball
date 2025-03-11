@@ -549,21 +549,44 @@ Provide analysis in JSON format:
   // AI Trading Management routes
   app.post("/api/trading/start", async (req, res) => {
     try {
-      const { userAddress, aiWalletAddress, allocatedAmount } = req.body;
+      const { userAddress, aiWalletAddress, allocatedAmount, tokenAddress, txHash } = req.body;
+
+      // Get existing wallet information
+      const existingWallet = await storage.getAIWalletByAddress(aiWalletAddress);
+
+      // Calculate the new total allocation amount
+      let totalAllocatedAmount = allocatedAmount;
+      if (existingWallet && existingWallet.allocatedAmount) {
+        // If this is an additional allocation to an existing wallet, add to the current amount
+        const currentAmount = parseFloat(existingWallet.allocatedAmount) || 0;
+        const newAmount = parseFloat(allocatedAmount) || 0;
+        totalAllocatedAmount = (currentAmount + newAmount).toString();
+
+        // Update the wallet's allocated amount
+        await storage.updateAIWalletAllocation(aiWalletAddress, totalAllocatedAmount);
+        console.log(`Updated wallet ${aiWalletAddress} allocation to ${totalAllocatedAmount}`);
+      }
 
       // Store trading session in database
       const session = await storage.createTradingSession({
         userAddress,
         aiWalletAddress,
-        allocatedAmount,
+        allocatedAmount: totalAllocatedAmount,
         isActive: true
       });
 
-      // Log the wallet activity
+      // Log the wallet activity with transaction details
       await storage.createWalletActivityLog({
         sessionId: session.id,
         activityType: "SESSION_START",
-        details: { userAddress, aiWalletAddress, allocatedAmount },
+        details: {
+          userAddress,
+          aiWalletAddress,
+          allocatedAmount,
+          totalAllocatedAmount,
+          tokenAddress,
+          txHash
+        },
         isManualIntervention: false
       });
 
@@ -695,54 +718,143 @@ Provide analysis in JSON format:
       const { userAddress } = req.query;
 
       if (!userAddress) {
-        return res.status(400).json({
-          success: false,
-          error: "User address is required"
-        });
+        return res.status(400).json({ error: 'Missing userAddress parameter' });
       }
 
-      // Get AI wallets for the user
+      console.log(`Fetching AI wallets for user: ${userAddress}`);
+
+      // Get all AI wallets for the user
       const wallets = await storage.getAIWallets(userAddress as string);
 
+      console.log(`Found ${wallets.length} AI wallets for user ${userAddress}`);
       res.json(wallets);
     } catch (error) {
-      console.error("Error fetching AI wallets:", error);
-      res.status(500).json({
-        success: false,
-        error: "Failed to fetch AI wallets"
-      });
+      console.error('Error fetching AI wallets:', error);
+      res.status(500).json({ error: 'Failed to fetch AI wallets' });
     }
   });
 
   app.post("/api/wallets", async (req, res) => {
     try {
-      const { userAddress, aiWalletAddress, allocatedAmount } = req.body;
+      const { userAddress, aiWalletAddress, allocatedAmount, privateKey } = req.body;
 
-      if (!userAddress || !aiWalletAddress || !allocatedAmount) {
-        return res.status(400).json({
-          success: false,
-          error: "User address, AI wallet address, and allocated amount are required"
-        });
+      // Validate inputs
+      if (!userAddress || !aiWalletAddress) {
+        return res.status(400).json({ error: 'Missing required fields' });
       }
 
-      // Create a new AI wallet
-      const wallet = await storage.createAIWallet({
+      console.log('Creating AI wallet:', {
         userAddress,
         aiWalletAddress,
         allocatedAmount,
+        privateKey: privateKey ? "REDACTED" : null
+      });
+
+      try {
+        // Create the trading session with the AI wallet address
+        console.log('Creating trading session for AI wallet...');
+        const tradingSession = await storage.createTradingSession({
+          userAddress,
+          aiWalletAddress,
+          allocatedAmount: allocatedAmount || "0",
+          isActive: false
+        });
+
+        console.log(`Created trading session with ID ${tradingSession.id}`);
+
+        // Now create the AI wallet with the session ID
+        const wallet = await storage.createAIWallet({
+          userAddress,
+          aiWalletAddress,
+          allocatedAmount: allocatedAmount || "0",
+          isActive: false,  // Initially inactive until funds are allocated
+          sessionId: tradingSession.id, // Link to the trading session
+          privateKey: privateKey || null // Pass the private key if provided
+        });
+
+        console.log(`Created new AI wallet ${aiWalletAddress} for user ${userAddress} with session ID ${tradingSession.id}`);
+        res.json({ success: true, wallet });
+      } catch (dbError) {
+        console.error('Database error creating AI wallet:', dbError);
+        res.status(500).json({
+          error: 'Failed to create AI wallet in database',
+          details: dbError instanceof Error ? dbError.message : 'Unknown error'
+        });
+      }
+    } catch (error) {
+      console.error('Error creating AI wallet:', error);
+      res.status(500).json({ error: 'Failed to create AI wallet' });
+    }
+  });
+
+  // Also update the register route
+  app.post('/api/wallets/register', async (req, res) => {
+    try {
+      const { userAddress, aiWalletAddress, allocatedAmount, privateKey } = req.body;
+
+      // Validate inputs
+      if (!userAddress || !aiWalletAddress) {
+        return res.status(400).json({ error: 'Missing required fields' });
+      }
+
+      // Check if wallet already exists
+      const existingWallets = await storage.getAIWallets(userAddress);
+      const walletExists = existingWallets.some(wallet =>
+        wallet.aiWalletAddress.toLowerCase() === aiWalletAddress.toLowerCase()
+      );
+
+      if (walletExists) {
+        console.log(`AI wallet ${aiWalletAddress} already registered for user ${userAddress}`);
+        return res.json({ success: true, message: 'Wallet already registered' });
+      }
+
+      // Create the trading session with the AI wallet address
+      console.log('Creating trading session for AI wallet...');
+      const tradingSession = await storage.createTradingSession({
+        userAddress,
+        aiWalletAddress,
+        allocatedAmount: allocatedAmount || "0",
         isActive: false
       });
 
-      res.json({
-        success: true,
-        wallet
+      console.log(`Created trading session with ID ${tradingSession.id}`);
+
+      // Create the new AI wallet in the database
+      const wallet = await storage.createAIWallet({
+        userAddress,
+        aiWalletAddress,
+        allocatedAmount: allocatedAmount || "0",
+        isActive: false,  // Initially inactive until funds are allocated
+        sessionId: tradingSession.id, // Link to the trading session
+        privateKey: privateKey || null // Pass the private key if provided
       });
+
+      console.log(`Registered new AI wallet ${aiWalletAddress} for user ${userAddress} with session ID ${tradingSession.id}`);
+      res.json({ success: true, wallet });
     } catch (error) {
-      console.error("Error creating AI wallet:", error);
-      res.status(500).json({
-        success: false,
-        error: "Failed to create AI wallet"
-      });
+      console.error('Error registering AI wallet:', error);
+      res.status(500).json({ error: 'Failed to register AI wallet' });
+    }
+  });
+
+  // Add this near other wallet-related routes
+  app.post('/api/wallets/secure-key', async (req, res) => {
+    try {
+      const { sessionId, encryptedPrivateKey } = req.body;
+
+      // Validate inputs
+      if (!sessionId || !encryptedPrivateKey) {
+        return res.status(400).json({ error: 'Missing required fields' });
+      }
+
+      // Decrypt and store the private key
+      await storage.storeAIWalletPrivateKey(sessionId, encryptedPrivateKey);
+
+      console.log(`Stored encrypted private key for session ${sessionId}`);
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Error storing AI wallet private key:', error);
+      res.status(500).json({ error: 'Failed to store private key' });
     }
   });
 

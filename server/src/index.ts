@@ -6,6 +6,7 @@ import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes.js";
 import { storage } from "./storage.js";
 import { walletActivityLogs } from "@shared/schema.js";
+import { runTradingIteration } from "./tradingLogic.js";
 
 // Helper function for logging
 function log(message: string, source = "express") {
@@ -177,6 +178,65 @@ app.delete("/api/logs/clear/:sessionId", async (req: Request, res: Response) => 
     console.error('Server error:', err);
     res.status(status).json({ message });
     throw err;
+  });
+
+  // Set up automated trading scheduler
+  let tradingInterval: NodeJS.Timeout | null = null;
+
+  async function runActiveTradingSessions() {
+    try {
+      console.log("Running scheduled trading iterations for active sessions");
+
+      // Get all active trading sessions
+      const allSessions = await storage.getAllActiveTradingSessions();
+      console.log(`Found ${allSessions.length} active trading sessions`);
+
+      // Run trading iteration for each active session
+      for (const session of allSessions) {
+        try {
+          await runTradingIteration(session.id);
+        } catch (sessionError) {
+          console.error(`Error running trading iteration for session ${session.id}:`, sessionError);
+          // Continue with other sessions
+        }
+      }
+    } catch (error) {
+      console.error("Error in trading scheduler:", error);
+    }
+  }
+
+  // Start the trading scheduler
+  function startTradingScheduler() {
+    const TRADING_INTERVAL_MS = 60000; // Run every minute
+
+    if (tradingInterval) {
+      clearInterval(tradingInterval);
+    }
+
+    tradingInterval = setInterval(runActiveTradingSessions, TRADING_INTERVAL_MS);
+    console.log(`Trading scheduler started with ${TRADING_INTERVAL_MS}ms interval`);
+  }
+
+  // Stop the trading scheduler
+  function stopTradingScheduler() {
+    if (tradingInterval) {
+      clearInterval(tradingInterval);
+      tradingInterval = null;
+      console.log("Trading scheduler stopped");
+    }
+  }
+
+  // Start the scheduler when the server starts
+  startTradingScheduler();
+
+  // Handle graceful shutdown
+  process.on('SIGINT', () => {
+    console.log('Shutting down server...');
+    stopTradingScheduler();
+    server.close(() => {
+      console.log('Server stopped');
+      process.exit(0);
+    });
   });
 
   const PORT = 5000;

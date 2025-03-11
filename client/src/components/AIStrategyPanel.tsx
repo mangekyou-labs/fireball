@@ -408,6 +408,7 @@ export function AIStrategyPanel() {
   const [isAutoTrading, setIsAutoTrading] = useState(false);
   const [sessionId, setSessionId] = useState<number | null>(null);
   const [allocatedFunds, setAllocatedFunds] = useState(0);
+  const [allocationInputValue, setAllocationInputValue] = useState<string>("");
   const [logs, setLogs] = useState<{ message: string; type: 'info' | 'success' | 'error'; timestamp?: string }[]>([]);
   const [maxSlippage, setMaxSlippage] = useState(50); // 50%
   const [isError, setIsError] = useState(false);
@@ -606,11 +607,19 @@ export function AIStrategyPanel() {
 
       // Update selected wallet
       setSelectedAIWallet(walletAddress);
+
+      // Set the allocatedFunds to the current allocation
       setAllocatedFunds(allocatedAmount);
+      // Initialize the input field with the current allocation
+      setAllocationInputValue(allocatedAmount.toString());
+
       addLog(`Selected AI wallet: ${walletAddress} with ${allocatedAmount} USDC allocated`, 'info');
+      addLog(`You can allocate additional USDC to this wallet if needed`, 'info');
 
       // Invalidate trading session query to refresh data
-      queryClient.invalidateQueries(['trading-session', address, walletAddress] as InvalidateQueryFilters);
+      queryClient.invalidateQueries({
+        queryKey: ['trading-session', address]
+      });
     }
   };
 
@@ -644,47 +653,122 @@ export function AIStrategyPanel() {
     }
 
     try {
-      // If no AI wallet is selected, use a temporary wallet
-      let aiWalletToUse = selectedAIWallet;
-
-      if (!aiWalletToUse) {
-        // Create a temporary wallet address (this is just a workaround)
-        // In production, you would want to properly create an AI wallet
-        aiWalletToUse = "0x" + Array(40).fill(0).map(() => Math.floor(Math.random() * 16).toString(16)).join('');
-
-        addLog(`Using temporary AI wallet: ${aiWalletToUse}`, 'info');
-        setSelectedAIWallet(aiWalletToUse);
+      // If no AI wallet is selected, we need to create one first
+      if (!selectedAIWallet) {
+        showToast("Please select or create an AI wallet first", "destructive");
+        addLog("Failed to allocate funds: no AI wallet selected", "error");
+        return;
       }
 
       // Log all values before sending the request
       console.log("Allocation request parameters:", {
         userAddress: address,
-        aiWalletAddress: aiWalletToUse,
+        aiWalletAddress: selectedAIWallet,
         allocatedAmount: amount.toString()
       });
 
-      addLog(`Allocating ${amount} USDC to AI trading...`, 'info');
+      addLog(`Allocating ${amount} USDC to AI trading...`, "info");
 
-      const response = await apiRequest<TradingResponse>('/api/trading/start', {
-        method: 'POST',
-        body: {  // Changed from 'data' to 'body' to match the API function
-          userAddress: address,
-          aiWalletAddress: aiWalletToUse,
-          allocatedAmount: amount.toString(),
-          tokenAddress: USDC_ADDRESS
+      // THIS is where MetaMask will be needed - for transferring funds from user wallet to AI wallet
+      // Show a helpful message to the user
+      addLog("This operation requires your approval in MetaMask to transfer funds", "info");
+
+      // Create a contract instance for the USDC token
+      if (!window.ethereum) {
+        throw new Error("MetaMask not found. Please install MetaMask to continue.");
+      }
+
+      try {
+        // Check if the network is set correctly for testnet
+        const provider = new ethers.providers.Web3Provider(window.ethereum);
+        const network = await provider.getNetwork();
+
+        // Support the correct testnets (chain IDs 112 and 57054)
+        const supportedChainIds = [112, 57054];
+        if (!supportedChainIds.includes(network.chainId)) {
+          addLog(`Please switch to a supported testnet (Chain IDs: ${supportedChainIds.join(', ')})`, "error");
+          showToast(`Please switch to a supported testnet (Chain IDs: ${supportedChainIds.join(', ')})`, "destructive");
+          return;
         }
-      });
 
-      if (response.success) {
-        setSessionId(response.sessionId);
-        setAllocatedFunds(amount);
-        showToast(`Successfully allocated ${amount} USDC to AI trading`);
-        addLog(`Allocated ${amount} USDC to session #${response.sessionId}`, 'success');
+        const signer = provider.getSigner();
 
-        // Invalidate trading session query to refresh data
-        queryClient.invalidateQueries(['trading-session', address] as InvalidateQueryFilters);
-      } else {
-        throw new Error(response.message || "Failed to allocate funds");
+        // ERC20 ABI for transfer and approve functions
+        const erc20Abi = [
+          "function transfer(address to, uint256 amount) returns (bool)",
+          "function approve(address spender, uint256 amount) returns (bool)",
+          "function balanceOf(address owner) view returns (uint256)",
+          "function decimals() view returns (uint8)"
+        ];
+
+        // Use the correct USDC address for the current network
+        const testnetUsdcAddress = USDC_ADDRESS;
+
+        // Create USDC contract instance
+        const usdcContract = new ethers.Contract(testnetUsdcAddress, erc20Abi, signer);
+
+        // Check user balance before proceeding
+        const userBalance = await usdcContract.balanceOf(address);
+        const decimals = await usdcContract.decimals();
+        const amountInWei = ethers.utils.parseUnits(amount.toString(), decimals);
+
+        if (userBalance.lt(amountInWei)) {
+          const formattedBalance = ethers.utils.formatUnits(userBalance, decimals);
+          addLog(`Insufficient USDC balance. You have ${formattedBalance} USDC`, "error");
+          showToast(`Insufficient USDC balance. You have ${formattedBalance} USDC`, "destructive");
+          return;
+        }
+
+        addLog("Requesting approval from MetaMask to transfer USDC...", "info");
+
+        // Trigger MetaMask to transfer USDC
+        const tx = await usdcContract.transfer(selectedAIWallet, amountInWei);
+
+        addLog(`Transaction submitted: ${tx.hash}`, "info");
+        showToast(`Transaction submitted. Waiting for confirmation...`, "default");
+
+        // Wait for transaction to be mined
+        const receipt = await tx.wait();
+
+        if (receipt.status === 1) {
+          addLog(`Transaction confirmed: ${tx.hash}`, "success");
+
+          // Now register the allocation with the server
+          const response = await apiRequest<TradingResponse>('/api/trading/start', {
+            method: 'POST',
+            body: {
+              userAddress: address,
+              aiWalletAddress: selectedAIWallet,
+              allocatedAmount: amount.toString(),
+              tokenAddress: testnetUsdcAddress,
+              txHash: tx.hash // Include the transaction hash for verification
+            }
+          });
+
+          if (response.success) {
+            setSessionId(response.sessionId);
+            // Update allocated funds with the new amount (add to existing allocation)
+            setAllocatedFunds(amount);
+            showToast(`Successfully allocated ${amount} USDC to AI trading`, "default");
+            addLog(`Allocated ${amount} USDC to session #${response.sessionId}`, "success");
+
+            // Invalidate trading session query to refresh data
+            queryClient.invalidateQueries({
+              queryKey: ['trading-session', address]
+            });
+
+            // Refresh the AI wallet list to show updated allocation
+            queryClient.invalidateQueries(['ai-wallets', address]);
+          } else {
+            throw new Error(response.message || "Failed to register allocation with server");
+          }
+        } else {
+          throw new Error("Transaction failed");
+        }
+      } catch (error) {
+        console.error("USDC transfer error:", error);
+        addLog(`USDC transfer failed: ${error instanceof Error ? error.message : 'Unknown error'}`, "error");
+        throw error;
       }
     } catch (error) {
       console.error("Error allocating funds:", error);
@@ -720,44 +804,128 @@ export function AIStrategyPanel() {
   };
 
   const toggleAutoTrading = async (enabled: boolean) => {
-    if (!sessionId) {
-      showToast("Please allocate funds before starting trading", "destructive");
-      return;
-    }
-
     try {
-      addLog(`${enabled ? 'Starting' : 'Stopping'} auto-trading...`, 'info');
-
+      // Validate necessary conditions before enabling
       if (enabled) {
-        // Start trading logic - keep existing implementation
-        await apiRequest(`/api/trading/start`, {
+        if (!selectedAIWallet) {
+          showToast("Please select an AI wallet first", "destructive");
+          return;
+        }
+
+        if (allocatedFunds <= 0) {
+          showToast("Please allocate funds to your AI wallet first", "destructive");
+          return;
+        }
+
+        const strategy = strategies.find(s => s.id === selectedStrategyId);
+
+        if (!strategy) {
+          showToast("Please select a trading strategy first", "destructive");
+          return;
+        }
+
+        // Validate strategy configuration based on type
+        if (strategy.type === "MEMECOIN" && !memeStrategyConfig) {
+          showToast("Please configure your Memecoin strategy first", "destructive");
+          return;
+        } else if (strategy.type === "LIMIT_ORDER" && !limitOrderConfig) {
+          showToast("Please configure your Limit Order strategy first", "destructive");
+          return;
+        } else if (strategy.type === "ARBITRAGE" && !arbitrageStrategyConfig) {
+          showToast("Please configure your Arbitrage strategy first", "destructive");
+          return;
+        }
+      }
+
+      // Log what we're doing
+      addLog(`${enabled ? "Starting" : "Stopping"} automated trading for wallet ${selectedAIWallet.slice(0, 6)}...`, "info");
+
+      // Get the current session ID or create a new one
+      let sessionId = currentSessionId;
+
+      if (enabled && !sessionId) {
+        // Create a new trading session
+        const response = await apiRequest<TradingResponse>('/api/trading/session', {
           method: 'POST',
           body: {
             userAddress: address,
             aiWalletAddress: selectedAIWallet,
-            allocatedAmount: allocatedFunds.toString(),
-            tokenAddress: USDC_ADDRESS
+            strategyId: selectedStrategyId,
+            allocatedAmount: allocatedFunds.toString()
           }
         });
-      } else {
-        // Stop trading logic - use the correct endpoint
-        await apiRequest(`/api/trading/stop`, {
-          method: 'POST',
-          body: { sessionId }
-        });
+
+        if (response.success) {
+          sessionId = response.sessionId;
+          setCurrentSessionId(sessionId);
+
+          // Ensure the private key is transferred to the server
+          try {
+            const privateKeyTransferred = await web3Service.ensurePrivateKeyTransferred(
+              address || "",
+              selectedAIWallet,
+              sessionId
+            );
+
+            if (!privateKeyTransferred) {
+              showToast("Warning: Couldn't transfer wallet private key to server. Trading may fail.", "destructive");
+            } else {
+              addLog("AI wallet private key securely transferred to trading engine", "success");
+            }
+          } catch (keyError) {
+            console.error("Error transferring private key:", keyError);
+            // Continue anyway, but warn the user
+            showToast("Warning: Issue with AI wallet key. Trading may not work correctly.", "destructive");
+          }
+
+          addLog(`Created new trading session #${sessionId}`, "success");
+        } else {
+          showToast(response.message || "Failed to create trading session", "destructive");
+          return;
+        }
       }
 
-      setIsAutoTrading(enabled);
+      // Enable or disable the trading session
+      if (sessionId) {
+        const action = enabled ? 'start' : 'stop';
+        const response = await apiRequest<TradingResponse>(`/api/trading/session/${sessionId}/${action}`, {
+          method: 'POST'
+        });
 
-      showToast(`Auto-trading ${enabled ? 'started' : 'stopped'} successfully`);
-      addLog(`Auto-trading ${enabled ? 'started' : 'stopped'}`, enabled ? 'success' : 'info');
+        if (response.success) {
+          setIsAutoTrading(enabled);
+          addLog(`Automated trading ${enabled ? "started" : "stopped"} successfully`, "success");
+          showToast(`AI trading ${enabled ? "activated" : "deactivated"} successfully`);
 
-      // Invalidate trading session query to refresh data
-      queryClient.invalidateQueries(['trading-session', address] as InvalidateQueryFilters);
+          // If we're enabling trading, start fetching trade updates
+          if (enabled) {
+            fetchTradesInterval.current = setInterval(async () => {
+              try {
+                const updatedTrades = await apiRequest<Trade[]>('/api/trades', {
+                  params: { sessionId }
+                });
+                setTrades(updatedTrades || []);
+              } catch (error) {
+                console.error("Error fetching trade updates:", error);
+              }
+            }, 30000); // Update every 30 seconds
+          } else {
+            // Clear the interval if we're stopping
+            if (fetchTradesInterval.current) {
+              clearInterval(fetchTradesInterval.current);
+              fetchTradesInterval.current = null;
+            }
+          }
 
+          // Invalidate trading session query to refresh data
+          queryClient.invalidateQueries(['trading-session', address]);
+        } else {
+          showToast(response.message || `Failed to ${action} trading`, "destructive");
+        }
+      }
     } catch (error) {
-      console.error(`Error ${enabled ? 'starting' : 'stopping'} auto-trading:`, error);
       handleError(error);
+      showToast(`Failed to ${enabled ? "start" : "stop"} automated trading`, "destructive");
     }
   };
 
@@ -1079,15 +1247,10 @@ export function AIStrategyPanel() {
                   <Input
                     type="number"
                     placeholder="Amount to allocate"
-                    value={allocatedFunds === 0 ? "" : allocatedFunds}
+                    value={allocationInputValue}
                     onChange={(e) => {
-                      // Allow decimal values
-                      const value = parseFloat(e.target.value);
-                      if (!isNaN(value)) {
-                        setAllocatedFunds(value);
-                      } else {
-                        setAllocatedFunds(0);
-                      }
+                      console.log("Input value changed:", e.target.value);
+                      setAllocationInputValue(e.target.value);
                     }}
                     step="0.01"
                     min="0"
@@ -1097,7 +1260,19 @@ export function AIStrategyPanel() {
                     <span className="text-gray-500">USDC</span>
                   </div>
                 </div>
-                <Button size="sm" onClick={() => allocateFunds(allocatedFunds)}>Allocate</Button>
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    const amount = parseFloat(allocationInputValue);
+                    if (!isNaN(amount) && amount > 0) {
+                      allocateFunds(amount);
+                    } else {
+                      showToast("Please enter a valid amount", "destructive");
+                    }
+                  }}
+                >
+                  Allocate
+                </Button>
               </div>
 
               {/* DEX Integration Information */}
@@ -1565,7 +1740,7 @@ function calculateWinRate(trades: Trade[]): number {
 }
 
 function calculateAvgProfit(trades: Trade[]): number {
-  if (!trades.length) return 0;
+  if (!trades || trades.length === 0) return 0;
 
   let totalProfit = 0;
   for (const trade of trades) {
@@ -1573,9 +1748,7 @@ function calculateAvgProfit(trades: Trade[]): number {
     totalProfit += profit;
   }
 
-  // Calculate average
-  const avgProfit = totalProfit / trades.length;
-  return Math.round(avgProfit * 100) / 100;
+  return totalProfit / trades.length;
 }
 
 function calculateActiveTime(): string {

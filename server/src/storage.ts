@@ -1,7 +1,7 @@
 import { Token, InsertToken, Trade, InsertTrade, Strategy, InsertStrategy, TradingSession, InsertTradingSession, tradingSessions, WalletActivityLog, InsertWalletActivityLog, walletActivityLogs, tokens, trades, strategies } from "@shared/schema.js";
 import { db } from "./db.js";
 import { eq, and, sql } from "drizzle-orm";
-import { pgTable, serial, integer, varchar, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, serial, integer, varchar, jsonb, text, boolean, timestamp, primaryKey } from "drizzle-orm/pg-core";
 
 // Add interface for strategy config
 interface StrategyConfig {
@@ -51,6 +51,30 @@ interface ArbitrageStrategyConfig {
   liquidityThreshold: number;
 }
 
+// Define AI wallet tables
+const aiWallets = pgTable('ai_wallets', {
+  id: serial('id').primaryKey(),
+  userAddress: text('user_address').notNull(),
+  aiWalletAddress: text('ai_wallet_address').notNull(),
+  allocatedAmount: text('allocated_amount').notNull(),
+  privateKey: text('private_key'),
+  sessionId: integer('session_id').references(() => tradingSessions.id),
+  isActive: boolean('is_active').default(false),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow()
+});
+
+const aiWalletSessions = pgTable('ai_wallet_sessions', {
+  id: serial('id').primaryKey(),
+  walletId: integer('wallet_id').references(() => aiWallets.id).notNull(),
+  sessionId: integer('session_id').references(() => tradingSessions.id).notNull(),
+  createdAt: timestamp('created_at').defaultNow()
+}, (table) => {
+  return {
+    walletSessionUnique: primaryKey({ columns: [table.walletId, table.sessionId] })
+  };
+});
+
 export interface IStorage {
   // Token operations
   getTokens(): Promise<Token[]>;
@@ -90,6 +114,7 @@ export interface IStorage {
   // New methods
   getAIWallets(userAddress: string): Promise<AIWallet[]>;
   createAIWallet(wallet: InsertAIWallet): Promise<AIWallet>;
+  getAllActiveTradingSessions(): Promise<TradingSession[]>;
 }
 
 export interface DatabaseStorage extends IStorage {
@@ -105,8 +130,11 @@ export interface AIWallet {
   userAddress: string;
   aiWalletAddress: string;
   allocatedAmount: string;
-  createdAt: Date;
-  isActive: boolean;
+  createdAt: Date | null;
+  updatedAt?: Date | null;
+  isActive: boolean | null;
+  sessionId?: number | null;
+  privateKey?: string | null;
 }
 
 export interface InsertAIWallet {
@@ -114,6 +142,8 @@ export interface InsertAIWallet {
   aiWalletAddress: string;
   allocatedAmount: string;
   isActive: boolean;
+  sessionId?: number; // New field to link to trading session
+  privateKey?: string | null;
 }
 
 export class DatabaseStorage implements DatabaseStorage {
@@ -562,63 +592,67 @@ export class DatabaseStorage implements DatabaseStorage {
   }
 
   async getAIWallets(userAddress: string): Promise<AIWallet[]> {
-    // Get all trading sessions for the user
-    const sessions = await this.getTradingSessions(userAddress);
+    try {
+      console.log('Fetching AI wallets for user:', userAddress);
+      console.log('Using query:', `SELECT * FROM ai_wallets WHERE user_address = '${userAddress}'`);
 
-    // Create a map to store the most recent session for each AI wallet
-    const walletsMap = new Map();
+      const results = await db.select().from(aiWallets)
+        .where(eq(aiWallets.userAddress, userAddress));
 
-    sessions.forEach(session => {
-      const existingWallet = walletsMap.get(session.aiWalletAddress);
-
-      // If this wallet doesn't exist in our map yet, or if this session is newer than the one we have
-      if (!existingWallet ||
-        (session.createdAt && existingWallet.createdAt &&
-          new Date(session.createdAt).getTime() > new Date(existingWallet.createdAt).getTime())) {
-        walletsMap.set(session.aiWalletAddress, {
-          id: session.id,
-          userAddress: session.userAddress,
-          aiWalletAddress: session.aiWalletAddress,
-          allocatedAmount: session.allocatedAmount,
-          createdAt: session.createdAt,
-          isActive: session.isActive
-        });
-      }
-    });
-
-    // Convert map to array and sort by creation date (newest first)
-    return Array.from(walletsMap.values())
-      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      console.log('Query results:', results);
+      return results;
+    } catch (error) {
+      console.error("Error getting AI wallets:", error);
+      return [];
+    }
   }
 
   async createAIWallet(wallet: InsertAIWallet): Promise<AIWallet> {
-    // Create a new trading session for the AI wallet
-    const newSession = await this.createTradingSession({
-      userAddress: wallet.userAddress,
-      aiWalletAddress: wallet.aiWalletAddress,
-      allocatedAmount: wallet.allocatedAmount,
-      isActive: wallet.isActive
-    });
+    try {
+      console.log("Creating AI wallet with data:", {
+        userAddress: wallet.userAddress,
+        aiWalletAddress: wallet.aiWalletAddress,
+        allocatedAmount: wallet.allocatedAmount,
+        isActive: wallet.isActive,
+        sessionId: wallet.sessionId,
+        privateKey: wallet.privateKey ? "REDACTED" : null
+      });
 
-    // Return the session as an AI wallet
-    return {
-      id: newSession.id,
-      userAddress: newSession.userAddress,
-      aiWalletAddress: newSession.aiWalletAddress,
-      allocatedAmount: newSession.allocatedAmount,
-      createdAt: newSession.createdAt,
-      isActive: newSession.isActive
-    };
+      // Create the wallet record using Drizzle
+      const result = await db.insert(aiWallets).values({
+        userAddress: wallet.userAddress,
+        aiWalletAddress: wallet.aiWalletAddress,
+        allocatedAmount: wallet.allocatedAmount,
+        isActive: wallet.isActive,
+        sessionId: wallet.sessionId,
+        privateKey: wallet.privateKey || null // Explicitly handle null case
+      }).returning();
+
+      console.log("AI wallet created successfully with ID:", result[0].id);
+      return result[0];
+    } catch (error) {
+      console.error("Error creating AI wallet:", error);
+      throw error;
+    }
   }
 
   async getAIWalletPrivateKey(sessionId: number): Promise<{ privateKey: string } | null> {
-    const result = await db.select({
-      privateKey: sql<string>`private_key`
-    })
-      .from(sql`ai_wallets`)
-      .where(sql`session_id = ${sessionId}`);
+    try {
+      const results = await db.select({
+        privateKey: aiWallets.privateKey
+      }).from(aiWallets)
+        .where(eq(aiWallets.sessionId, sessionId))
+        .limit(1);
 
-    return result.length > 0 ? { privateKey: result[0].privateKey } : null;
+      if (results.length > 0 && results[0].privateKey) {
+        return { privateKey: results[0].privateKey };
+      }
+
+      return null;
+    } catch (error) {
+      console.error("Error getting AI wallet private key:", error);
+      return null;
+    }
   }
 
   async getTokenAddress(symbol: string): Promise<string | null> {
@@ -629,6 +663,97 @@ export class DatabaseStorage implements DatabaseStorage {
       .where(eq(tokens.symbol, symbol));
 
     return result.length > 0 ? result[0].address : null;
+  }
+
+  async getAllActiveTradingSessions(): Promise<TradingSession[]> {
+    try {
+      // Get all active trading sessions
+      const result = await db.select().from(tradingSessions).where(eq(tradingSessions.isActive, true));
+      return result;
+    } catch (error) {
+      console.error("Error getting active trading sessions:", error);
+      return [];
+    }
+  }
+
+  // Update to store the private key securely
+  async storeAIWalletPrivateKey(sessionId: number, privateKey: string): Promise<void> {
+    try {
+      // Check if an AI wallet record already exists for this session
+      const existingWallet = await db.select().from(aiWallets)
+        .where(eq(aiWallets.sessionId, sessionId))
+        .limit(1);
+
+      if (existingWallet.length > 0) {
+        // Update the existing record
+        await db.update(aiWallets)
+          .set({
+            privateKey: privateKey,
+            updatedAt: new Date()
+          })
+          .where(eq(aiWallets.sessionId, sessionId));
+      } else {
+        // Insert a new record with just the private key and session ID
+        // The rest of the wallet info will be added later when the wallet is registered
+        await db.insert(aiWallets).values({
+          sessionId: sessionId,
+          privateKey: privateKey,
+          userAddress: "pending", // Placeholder, will be updated when wallet is registered
+          aiWalletAddress: "pending", // Placeholder, will be updated when wallet is registered
+          allocatedAmount: "0" // Initial amount is zero
+        });
+      }
+    } catch (error) {
+      console.error("Error storing AI wallet private key:", error);
+      throw error;
+    }
+  }
+
+  // Add method to update AI wallet when wallet address is known but private key was stored first
+  async updateAIWalletInfo(sessionId: number, userAddress: string, aiWalletAddress: string, allocatedAmount: string): Promise<void> {
+    try {
+      await db.update(aiWallets)
+        .set({
+          userAddress,
+          aiWalletAddress,
+          allocatedAmount,
+          updatedAt: new Date()
+        })
+        .where(eq(aiWallets.sessionId, sessionId));
+    } catch (error) {
+      console.error("Error updating AI wallet info:", error);
+      throw error;
+    }
+  }
+
+  // Get an AI wallet by its address
+  async getAIWalletByAddress(aiWalletAddress: string): Promise<AIWallet | undefined> {
+    try {
+      const result = await db.select()
+        .from(aiWallets)
+        .where(eq(aiWallets.aiWalletAddress, aiWalletAddress))
+        .limit(1);
+
+      return result[0];
+    } catch (error) {
+      console.error("Error getting AI wallet by address:", error);
+      throw error;
+    }
+  }
+
+  // Update the allocated amount for an AI wallet
+  async updateAIWalletAllocation(aiWalletAddress: string, newAllocatedAmount: string): Promise<void> {
+    try {
+      await db.update(aiWallets)
+        .set({
+          allocatedAmount: newAllocatedAmount,
+          updatedAt: new Date()
+        })
+        .where(eq(aiWallets.aiWalletAddress, aiWalletAddress));
+    } catch (error) {
+      console.error("Error updating AI wallet allocation:", error);
+      throw error;
+    }
   }
 }
 

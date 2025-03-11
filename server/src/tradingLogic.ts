@@ -290,64 +290,168 @@ async function executeTrade(
 
 export async function runTradingIteration(sessionId: number) {
     try {
-        // Get session details
+        console.log(`Running trading iteration for session ${sessionId}`);
+
+        // Get the session information
         const sessions = await storage.getTradingSessionById(sessionId);
         if (!sessions || sessions.length === 0) {
-            throw new Error("Trading session not found");
+            console.error(`No trading session found with ID ${sessionId}`);
+            return false;
         }
+
         const session = sessions[0];
-
-        // Get active strategies
-        const strategies = await storage.getStrategies();
-        const activeStrategy = strategies.find(s => s.enabled);
-        if (!activeStrategy) {
-            throw new Error("No active trading strategy found");
+        if (!session.isActive) {
+            console.log(`Session ${sessionId} is not active, skipping trading iteration`);
+            return false;
         }
 
-        // Default trading pair
-        const pair = "USDC/USDT"; // TODO: Make this configurable
+        // Get the strategy details
+        const strategies = await storage.getStrategies();
+        const strategy = strategies.find(s => s.id === session.strategyId);
 
-        // Analyze market for the active strategy
-        const analysis = await analyzeMarket(pair, activeStrategy.type);
+        if (!strategy) {
+            console.error(`Strategy not found for session ${sessionId}`);
+            return false;
+        }
 
-        // Log the analysis
+        if (!strategy.isEnabled) {
+            console.log(`Strategy ${strategy.name} is disabled, skipping trading iteration`);
+            return false;
+        }
+
+        // Log the start of the trading cycle
         await storage.createWalletActivityLog({
             sessionId,
-            activityType: "MARKET_ANALYSIS",
+            activityType: "TRADING_CYCLE_START",
             details: {
-                analysis,
+                strategyName: strategy.name,
                 timestamp: new Date()
             },
             isManualIntervention: false
         });
 
-        // Execute trade if confidence is high enough
-        if (analysis.confidence >= 0.7 && analysis.action !== "HOLD") {
-            const tradeAmount = Number(session.allocatedAmount) * 0.1; // Use 10% of allocated amount per trade
-            await executeTrade(
-                sessionId,
-                session.aiWalletAddress,
-                analysis.action,
-                tradeAmount,
-                pair
-            );
+        // Determine the trading pair based on strategy
+        let pair = "USDC/WETH"; // Default pair
+
+        // Load the appropriate strategy configuration
+        let strategyConfig = null;
+
+        if (strategy.type === "MEMECOIN") {
+            const { config } = await storage.getMemeStrategy();
+            strategyConfig = config;
+
+            // Update pair for memecoin strategy - could be dynamic based on trending coins
+            pair = "USDC/SHIB"; // Example for memecoin trading
+        } else if (strategy.type === "ARBITRAGE") {
+            const { config } = await storage.getArbitrageStrategy();
+            strategyConfig = config;
+
+            // For arbitrage we might use multiple pairs, but for simplicity use one
+            pair = "USDC/WETH";
+        } else if (strategy.type === "LIMIT_ORDER") {
+            // Get limit order config when implemented
+            pair = "USDC/WBTC"; // Example for limit orders
+        }
+
+        // Analyze the market and make a trading decision
+        const analysisResult = await analyzeMarket(pair, strategy.type);
+
+        // Determine allocation amount based on strategy risk level
+        const allocatedAmount = parseFloat(session.allocatedAmount);
+        let tradeAmount = 0;
+
+        if (strategy.riskLevel === "LOW") {
+            tradeAmount = allocatedAmount * 0.05; // 5% of allocated funds
+        } else if (strategy.riskLevel === "MEDIUM") {
+            tradeAmount = allocatedAmount * 0.10; // 10% of allocated funds
+        } else if (strategy.riskLevel === "HIGH") {
+            tradeAmount = allocatedAmount * 0.20; // 20% of allocated funds
+        }
+
+        // Adjust based on strategy config if available
+        if (strategyConfig && "investmentPercentage" in strategyConfig) {
+            tradeAmount = allocatedAmount * (strategyConfig.investmentPercentage / 100);
+        }
+
+        // Make a trading decision based on the analysis
+        const decision = analysisResult.decision as TradingDecision;
+        console.log(`Trading decision for session ${sessionId}:`, decision);
+
+        // Log the decision
+        await storage.createWalletActivityLog({
+            sessionId,
+            activityType: "TRADING_DECISION",
+            details: {
+                action: decision.action,
+                confidence: decision.confidence,
+                reasoning: decision.reasoning,
+                timestamp: new Date()
+            },
+            isManualIntervention: false
+        });
+
+        // Execute trade if the decision is to BUY or SELL with sufficient confidence
+        if ((decision.action === "BUY" || decision.action === "SELL") && decision.confidence >= 60) {
+            try {
+                // Calculate the final trade amount based on the decision
+                const finalTradeAmount = Math.min(tradeAmount, decision.amount);
+
+                // Execute the trade
+                await executeTrade(
+                    sessionId,
+                    session.aiWalletAddress,
+                    decision.action,
+                    finalTradeAmount,
+                    pair
+                );
+
+                return true;
+            } catch (tradeError) {
+                console.error(`Error executing trade for session ${sessionId}:`, tradeError);
+
+                // Log the error
+                await storage.createWalletActivityLog({
+                    sessionId,
+                    activityType: "TRADING_ERROR",
+                    details: {
+                        error: tradeError instanceof Error ? tradeError.message : "Unknown error",
+                        timestamp: new Date()
+                    },
+                    isManualIntervention: false
+                });
+
+                return false;
+            }
         } else {
+            console.log(`No trade executed: decision was to ${decision.action} with confidence ${decision.confidence}%`);
+
             // Log the hold decision
             await storage.createWalletActivityLog({
                 sessionId,
-                activityType: "TRADE_SKIPPED",
+                activityType: "TRADING_HOLD",
                 details: {
-                    reason: analysis.confidence < 0.7 ? "Low confidence" : "HOLD recommendation",
-                    analysis,
+                    reasoning: decision.reasoning,
                     timestamp: new Date()
                 },
                 isManualIntervention: false
             });
-        }
 
-        return true;
+            return true; // Successfully decided not to trade
+        }
     } catch (error) {
-        console.error("Error in trading iteration:", error);
-        throw error;
+        console.error(`Error in trading iteration for session ${sessionId}:`, error);
+
+        // Log the error
+        await storage.createWalletActivityLog({
+            sessionId,
+            activityType: "TRADING_CYCLE_ERROR",
+            details: {
+                error: error instanceof Error ? error.message : "Unknown error",
+                timestamp: new Date()
+            },
+            isManualIntervention: false
+        });
+
+        return false;
     }
 } 

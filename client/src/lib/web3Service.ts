@@ -44,6 +44,25 @@ const ROUTER_ABI = [
 // Contract addresses from environment variables
 const ROUTER_ADDRESS = import.meta.env.VITE_ROUTER_ADDRESS;
 
+// Add these interfaces for the API responses
+interface WalletRegistrationResponse {
+  success: boolean;
+  wallet?: {
+    id: number;
+    userAddress: string;
+    aiWalletAddress: string;
+    allocatedAmount: string;
+    isActive: boolean;
+    createdAt: string;
+  };
+  message?: string;
+}
+
+interface SecureKeyTransferResponse {
+  success: boolean;
+  message?: string;
+}
+
 export class Web3Service {
   private provider: ethers.providers.Web3Provider | null = null;
   private signer: ethers.Signer | null = null;
@@ -463,43 +482,166 @@ export class Web3Service {
       return existingWallet;
     }
 
-    // Create a new deterministic wallet for the user
-    // We use the user's address as entropy to generate a consistent wallet
-    const aiWallet = ethers.Wallet.createRandom({
-      extraEntropy: userAddress
-    });
+    console.log("No existing AI wallet found, creating a new one");
 
-    // Store the wallet
-    this.aiWallets.set(userAddress, aiWallet.address);
-    this.aiWalletSigners.set(userAddress, aiWallet);
+    // Create a new deterministic wallet for the AI
+    // We use the user's address + a random salt as entropy to generate a secure wallet
+    const salt = ethers.utils.randomBytes(16);
+    console.log("Generated random salt for wallet entropy");
 
-    // Encrypt and store the private key
-    const encryptedPrivateKey = this.encryptWalletData(aiWallet.privateKey, userAddress);
-
-    // Save to localStorage with encryption
     try {
-      localStorage.setItem(`aiWallet_${userAddress}`, JSON.stringify({
-        address: aiWallet.address,
-        encryptedKey: encryptedPrivateKey
-      }));
-    } catch (error) {
-      console.error("Failed to save encrypted wallet to storage:", error);
-    }
-
-    this.saveAIWalletsToStorage(); // Save address mapping to localStorage
-    console.log("Created new AI wallet for user:", userAddress, aiWallet.address);
-
-    // If in test mode, fund the wallet with some test ETH
-    if (this.isTestMode) {
-      const testProvider = new ethers.providers.JsonRpcProvider(import.meta.env.VITE_RPC_URL);
-      const testWallet = ethers.Wallet.createRandom().connect(testProvider);
-      await testWallet.sendTransaction({
-        to: aiWallet.address,
-        value: ethers.utils.parseEther("0.1") // 0.1 ETH for gas
+      const aiWallet = ethers.Wallet.createRandom({
+        extraEntropy: ethers.utils.concat([ethers.utils.arrayify(userAddress), salt])
       });
+      console.log("Successfully created new AI wallet with address:", aiWallet.address);
+
+      // Store the wallet
+      this.aiWallets.set(userAddress, aiWallet.address);
+      this.aiWalletSigners.set(userAddress, aiWallet);
+
+      // Encrypt and store the private key locally
+      const encryptedPrivateKey = this.encryptWalletData(aiWallet.privateKey, userAddress);
+      console.log("Encrypted private key for local storage");
+
+      // Save to localStorage with encryption
+      try {
+        localStorage.setItem(`aiWallet_${userAddress}`, JSON.stringify({
+          address: aiWallet.address,
+          encryptedKey: encryptedPrivateKey,
+          salt: ethers.utils.hexlify(salt) // Store salt for future recovery
+        }));
+        console.log("Saved encrypted wallet data to localStorage");
+      } catch (error) {
+        console.error("Failed to save encrypted wallet to storage:", error);
+      }
+
+      this.saveAIWalletsToStorage(); // Save address mapping to localStorage
+
+      // Request server to register the AI wallet
+      try {
+        console.log("Sending wallet registration request to server");
+        const response = await apiRequest<WalletRegistrationResponse>('/api/wallets/register', {
+          method: 'POST',
+          body: {
+            userAddress: userAddress,
+            aiWalletAddress: aiWallet.address,
+            allocatedAmount: "0" // Initial amount is zero, will be updated when user allocates funds
+          }
+        });
+        console.log("Server registration response:", response);
+
+        if (response && response.success && response.wallet && response.wallet.id) {
+          // Now that we have a registered wallet, send the private key securely
+          console.log("Transferring private key to server for wallet ID:", response.wallet.id);
+          await this.transferPrivateKeyToServer(
+            response.wallet.id,
+            aiWallet.privateKey,
+            userAddress
+          );
+        }
+
+        console.log("AI wallet registered with server successfully");
+      } catch (serverError) {
+        console.error("Failed to register AI wallet with server:", serverError);
+        // Continue anyway as the wallet is created locally
+      }
+
+      return aiWallet.address;
+    } catch (walletCreationError) {
+      console.error("Error creating AI wallet:", walletCreationError);
+      throw new Error("Failed to create AI wallet: " +
+        (walletCreationError instanceof Error ? walletCreationError.message : "Unknown error"));
+    }
+  }
+
+  // New method to create an AI wallet and return both the address and private key
+  async createAIWalletWithPrivateKey(userAddress: string): Promise<{ address: string; privateKey: string }> {
+    // First check if we already have an AI wallet for this user
+    const existingWallet = this.aiWallets.get(userAddress);
+    if (existingWallet) {
+      console.log("Using existing AI wallet for user:", userAddress, existingWallet);
+
+      // Try to get the private key from local storage
+      try {
+        const storedWalletData = localStorage.getItem(`aiWallet_${userAddress}`);
+        if (storedWalletData) {
+          const walletData = JSON.parse(storedWalletData);
+          if (walletData && walletData.encryptedKey) {
+            const privateKey = this.decryptWalletData(walletData.encryptedKey, userAddress);
+            return { address: existingWallet, privateKey };
+          }
+        }
+      } catch (error) {
+        console.error("Error retrieving private key for existing wallet:", error);
+      }
+
+      // If we couldn't get the private key, create a new wallet
+      console.log("Could not retrieve private key for existing wallet, creating a new one");
     }
 
-    return aiWallet.address;
+    console.log("Creating a new AI wallet with private key");
+
+    // Create a new deterministic wallet for the AI
+    // We use the user's address + a random salt as entropy to generate a secure wallet
+    const salt = ethers.utils.randomBytes(16);
+    console.log("Generated random salt for wallet entropy");
+
+    try {
+      const aiWallet = ethers.Wallet.createRandom({
+        extraEntropy: ethers.utils.concat([ethers.utils.arrayify(userAddress), salt])
+      });
+      console.log("Successfully created new AI wallet with address:", aiWallet.address);
+
+      // Store the wallet
+      this.aiWallets.set(userAddress, aiWallet.address);
+      this.aiWalletSigners.set(userAddress, aiWallet);
+
+      // Encrypt and store the private key locally
+      const encryptedPrivateKey = this.encryptWalletData(aiWallet.privateKey, userAddress);
+      console.log("Encrypted private key for local storage");
+
+      // Save to localStorage with encryption
+      try {
+        localStorage.setItem(`aiWallet_${userAddress}`, JSON.stringify({
+          address: aiWallet.address,
+          encryptedKey: encryptedPrivateKey,
+          salt: ethers.utils.hexlify(salt) // Store salt for future recovery
+        }));
+        console.log("Saved encrypted wallet data to localStorage");
+      } catch (error) {
+        console.error("Failed to save encrypted wallet to storage:", error);
+      }
+
+      this.saveAIWalletsToStorage(); // Save address mapping to localStorage
+
+      return { address: aiWallet.address, privateKey: aiWallet.privateKey };
+    } catch (walletCreationError) {
+      console.error("Error creating AI wallet with private key:", walletCreationError);
+      throw new Error("Failed to create AI wallet: " +
+        (walletCreationError instanceof Error ? walletCreationError.message : "Unknown error"));
+    }
+  }
+
+  // Add a new method to securely transfer private keys to the server
+  private async transferPrivateKeyToServer(sessionId: number, privateKey: string, userAddress: string): Promise<boolean> {
+    try {
+      // Re-encrypt the private key for transfer
+      const encryptedPrivateKey = this.encryptWalletData(privateKey, userAddress);
+
+      // Send the encrypted key to the server
+      const response = await apiRequest<SecureKeyTransferResponse>('/api/wallets/secure-key', {
+        method: 'POST',
+        body: {
+          sessionId,
+          encryptedPrivateKey
+        }
+      });
+
+      return response && response.success;
+    } catch (error) {
+      console.error("Failed to transfer private key to server:", error);
+      return false;
+    }
   }
 
   // Register an existing AI wallet for a user
@@ -765,6 +907,54 @@ export class Web3Service {
     } catch (error) {
       console.error("Error decrypting wallet data:", error);
       throw new Error("Failed to access wallet data");
+    }
+  }
+
+  // Add a method to ensure the private key is transferred
+  async ensurePrivateKeyTransferred(userAddress: string, aiWalletAddress: string, sessionId: number): Promise<boolean> {
+    try {
+      // First check if this wallet exists in our local storage
+      let aiWallet: ethers.Wallet | null = this.aiWalletSigners.get(userAddress) || null;
+
+      if (!aiWallet) {
+        // Try to recover from localStorage
+        try {
+          const storedData = localStorage.getItem(`aiWallet_${userAddress}`);
+          if (storedData) {
+            const walletData = JSON.parse(storedData);
+            if (walletData.address === aiWalletAddress && walletData.encryptedKey) {
+              // Decrypt the private key
+              const privateKey = this.decryptWalletData(walletData.encryptedKey, userAddress);
+              // Create wallet from private key
+              aiWallet = new ethers.Wallet(privateKey);
+
+              // Verify that the address matches
+              if (aiWallet.address !== aiWalletAddress) {
+                console.error("Recovered wallet address doesn't match expected address");
+                return false;
+              }
+
+              // Store in memory for future use
+              this.aiWalletSigners.set(userAddress, aiWallet);
+            }
+          }
+        } catch (storageError) {
+          console.error("Error recovering wallet from storage:", storageError);
+          return false;
+        }
+      }
+
+      // If we still don't have the wallet, we can't transfer the key
+      if (!aiWallet) {
+        console.error("Could not find AI wallet private key");
+        return false;
+      }
+
+      // Transfer the private key securely to the server
+      return await this.transferPrivateKeyToServer(sessionId, aiWallet.privateKey, userAddress);
+    } catch (error) {
+      console.error("Error ensuring private key transfer:", error);
+      return false;
     }
   }
 }
