@@ -18,7 +18,7 @@ const getSavedChainId = (): number => {
   } catch (error) {
     console.error('Error reading from localStorage:', error);
   }
-  return parseInt(import.meta.env.VITE_CHAIN_ID); // Default to env chain ID if no saved chain or error
+  return CHAIN_IDS.ABC_TESTNET; // Default to ABC Testnet if no chain ID in localStorage
 };
 
 // Add window.ethereum type declaration if not already defined
@@ -41,9 +41,6 @@ const ROUTER_ABI = [
   "function getAmountsOut(uint amountIn, address[] calldata path) view returns (uint[] memory amounts)"
 ];
 
-// Contract addresses from environment variables
-const ROUTER_ADDRESS = import.meta.env.VITE_ROUTER_ADDRESS;
-
 // Add these interfaces for the API responses
 interface WalletRegistrationResponse {
   success: boolean;
@@ -63,14 +60,15 @@ interface SecureKeyTransferResponse {
   message?: string;
 }
 
+// Web3Service class handles all blockchain interactions
 export class Web3Service {
-  private provider: ethers.providers.Web3Provider | null = null;
-  private signer: ethers.Signer | null = null;
-  private isTestMode: boolean = false;
-  private aiWallets: Map<string, string> = new Map(); // Map user addresses to their AI wallet addresses
-  private aiWalletSigners: Map<string, ethers.Wallet> = new Map(); // Store AI wallet signers
-  private currentChainId: number = getSavedChainId();
-  private currentContracts = getContractsForChain(getSavedChainId());
+  provider: ethers.providers.Web3Provider | null = null;
+  signer: ethers.Signer | null = null;
+  isTestMode: boolean = false;
+  aiWallets: Map<string, string> = new Map(); // Map user addresses to their AI wallet addresses
+  aiWalletSigners: Map<string, ethers.Wallet> = new Map(); // Store AI wallet signers
+  currentChainId: number = getSavedChainId();
+  currentContracts = getContractsForChain(this.currentChainId);
 
   constructor(isTestMode: boolean = false) {
     this.isTestMode = isTestMode;
@@ -957,6 +955,148 @@ export class Web3Service {
       return false;
     }
   }
+
+  async getTokenBalance(tokenAddress: string, address?: string): Promise<string> {
+    try {
+      if (!this.provider) {
+        throw new Error('Provider not available');
+      }
+
+      const targetAddress = address || (await this.getAddress());
+      if (!targetAddress) {
+        throw new Error('No address provided');
+      }
+
+      // Convert symbolic token names to addresses if provided
+      let resolvedTokenAddress = tokenAddress;
+      if (tokenAddress === 'WETH' || tokenAddress === 'weth') {
+        const contracts = getContractsForChain(this.currentChainId);
+        resolvedTokenAddress = contracts.WETH;
+        console.log(`Resolved WETH to address: ${resolvedTokenAddress}`);
+      } else if (tokenAddress === 'USDC' || tokenAddress === 'usdc') {
+        const contracts = getContractsForChain(this.currentChainId);
+        resolvedTokenAddress = contracts.USDC;
+        console.log(`Resolved USDC to address: ${resolvedTokenAddress}`);
+      } else if (tokenAddress === 'USDT' || tokenAddress === 'usdt') {
+        const contracts = getContractsForChain(this.currentChainId);
+        resolvedTokenAddress = contracts.USDT;
+        console.log(`Resolved USDT to address: ${resolvedTokenAddress}`);
+      } else if (tokenAddress === 'WBTC' || tokenAddress === 'wbtc') {
+        const contracts = getContractsForChain(this.currentChainId);
+        resolvedTokenAddress = contracts.WBTC;
+        console.log(`Resolved WBTC to address: ${resolvedTokenAddress}`);
+      }
+
+      console.log(`Getting balance for token ${resolvedTokenAddress} for address ${targetAddress}`);
+      console.log(`Current chainId: ${this.currentChainId}`);
+
+      // Get decimals and symbol for better logging
+      const tokenContract = new ethers.Contract(
+        resolvedTokenAddress,
+        [
+          'function balanceOf(address owner) view returns (uint256)',
+          'function symbol() view returns (string)',
+          'function decimals() view returns (uint8)'
+        ],
+        this.provider
+      );
+
+      try {
+        const [symbol, decimals, balanceRaw] = await Promise.all([
+          tokenContract.symbol().catch(() => 'Unknown'),
+          tokenContract.decimals().catch(() => 18),
+          tokenContract.balanceOf(targetAddress)
+        ]);
+
+        console.log(`Token ${symbol} (${resolvedTokenAddress}) has ${decimals} decimals`);
+        console.log(`Raw balance: ${balanceRaw.toString()}`);
+
+        // Format the balance based on decimals
+        const balance = ethers.utils.formatUnits(balanceRaw, decimals);
+        console.log(`Formatted balance: ${balance} ${symbol}`);
+
+        return balance;
+      } catch (error) {
+        console.error(`Token contract call error for ${resolvedTokenAddress}:`, error);
+        return '0';
+      }
+    } catch (error) {
+      console.error('Error getting token balance:', error);
+      return '0';
+    }
+  }
+
+  // Add a public method to update the chain
+  updateNetwork(chainId: number): void {
+    this.currentChainId = chainId;
+    this.currentContracts = getContractsForChain(chainId);
+    console.log(`Web3Service: Switched to chain ID ${chainId}`);
+    console.log(`Web3Service: Using WETH address ${this.currentContracts.WETH}`);
+    console.log(`Web3Service: Using USDC address ${this.currentContracts.USDC}`);
+  }
+
+  // Update refreshAndLogTokenBalances method to always use fresh contract addresses
+  async refreshAndLogTokenBalances(address?: string): Promise<void> {
+    try {
+      if (!this.provider) {
+        throw new Error('Provider not available');
+      }
+
+      const targetAddress = address || (await this.getAddress());
+      if (!targetAddress) {
+        throw new Error('No address provided');
+      }
+
+      // Get the latest contracts for the current chain to ensure we have the correct addresses
+      const contracts = getContractsForChain(this.currentChainId);
+
+      console.log(`=== REFRESHING TOKEN BALANCES FOR ${targetAddress} ===`);
+      console.log(`Current chain ID: ${this.currentChainId}`);
+      console.log(`Using WETH address: ${contracts.WETH}`);
+      console.log(`Using USDC address: ${contracts.USDC}`);
+
+      // Get ETH balance
+      const ethBalance = await this.provider.getBalance(targetAddress);
+      console.log(`ETH Balance: ${ethers.utils.formatEther(ethBalance)}`);
+
+      // Get WETH balance - use contracts directly from getContractsForChain
+      const wethBalance = await this.getTokenBalance(contracts.WETH, targetAddress);
+      console.log(`WETH Balance: ${wethBalance}`);
+
+      // Get USDC balance
+      const usdcBalance = await this.getTokenBalance(contracts.USDC, targetAddress);
+      console.log(`USDC Balance: ${usdcBalance}`);
+
+      // Get USDT balance
+      const usdtBalance = await this.getTokenBalance(contracts.USDT, targetAddress);
+      console.log(`USDT Balance: ${usdtBalance}`);
+
+      // Get WBTC balance
+      const wbtcBalance = await this.getTokenBalance(contracts.WBTC, targetAddress);
+      console.log(`WBTC Balance: ${wbtcBalance}`);
+
+      console.log(`=== END BALANCE REFRESH ===`);
+    } catch (error) {
+      console.error('Error refreshing token balances:', error);
+    }
+  }
+
+  // Initialization happens when user connects wallet
+  async initialize(provider: ethers.providers.Web3Provider, signer: ethers.Signer): Promise<void> {
+    this.provider = provider;
+    this.signer = signer;
+
+    // Log current chain and contracts
+    console.log(`Web3Service initialized with chainId: ${this.currentChainId}`);
+    console.log(`Using WETH: ${this.currentContracts.WETH}`);
+    console.log(`Using USDC: ${this.currentContracts.USDC}`);
+  }
 }
 
+// Export a singleton instance
 export const web3Service = new Web3Service();
+
+// Initialize with the saved chain ID and ensure contracts are loaded
+const initChainId = getSavedChainId();
+web3Service.updateNetwork(initChainId);
+console.log(`Web3Service initialized with chain ID ${initChainId}`);

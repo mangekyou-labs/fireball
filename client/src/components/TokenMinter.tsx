@@ -5,12 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { useToast } from '@/hooks/use-toast';
 import { useWallet } from '@/contexts/WalletContext';
 import { Loader2 } from 'lucide-react';
-
-// Token addresses from environment variables
-const USDC_ADDRESS = import.meta.env.VITE_USDC_ADDRESS;
-const USDT_ADDRESS = import.meta.env.VITE_USDT_ADDRESS;
-const WBTC_ADDRESS = import.meta.env.VITE_WBTC_ADDRESS;
-const TOKEN_FAUCET_ADDRESS = import.meta.env.VITE_TOKEN_FAUCET_ADDRESS;
+import { getContractsForChain } from '@/lib/constants';
 
 // TokenFaucet ABI - only the functions we need
 const TOKEN_FAUCET_ABI = [
@@ -22,11 +17,22 @@ const TOKEN_FAUCET_ABI = [
 
 export function TokenMinter() {
     const { toast } = useToast();
-    const { address, isConnected, signer } = useWallet();
+    const { address, isConnected, signer, currentNetwork } = useWallet();
     const [isLoading, setIsLoading] = useState(false);
     const [currentToken, setCurrentToken] = useState('');
 
-    const requestTokens = async (tokenAddress: string, tokenSymbol: string) => {
+    // Get contract addresses based on current network
+    const getTokenAddresses = () => {
+        const contracts = getContractsForChain(currentNetwork.chainIdNumber);
+        return {
+            USDC: contracts.USDC,
+            USDT: contracts.USDT,
+            WBTC: contracts.WBTC,
+            TOKEN_FAUCET: contracts.TOKEN_FAUCET
+        };
+    };
+
+    const requestTokens = async (tokenSymbol: string) => {
         if (!isConnected || !address || !signer) {
             toast({
                 title: 'Wallet not connected',
@@ -36,10 +42,22 @@ export function TokenMinter() {
             return;
         }
 
-        if (!TOKEN_FAUCET_ADDRESS) {
+        const addresses = getTokenAddresses();
+        const tokenAddress = addresses[tokenSymbol as keyof typeof addresses];
+
+        if (!tokenAddress) {
             toast({
                 title: 'Configuration Error',
-                description: 'Token faucet address is not configured.',
+                description: `${tokenSymbol} address is not configured for this network.`,
+                variant: 'destructive',
+            });
+            return;
+        }
+
+        if (!addresses.TOKEN_FAUCET) {
+            toast({
+                title: 'Configuration Error',
+                description: 'Token faucet address is not configured for this network.',
                 variant: 'destructive',
             });
             return;
@@ -50,7 +68,7 @@ export function TokenMinter() {
 
         try {
             // Create contract instance
-            const tokenFaucet = new ethers.Contract(TOKEN_FAUCET_ADDRESS, TOKEN_FAUCET_ABI, signer);
+            const tokenFaucet = new ethers.Contract(addresses.TOKEN_FAUCET, TOKEN_FAUCET_ABI, signer);
 
             // Check cooldown period
             const lastRequest = await tokenFaucet.lastRequestTime(address, tokenAddress);
@@ -120,7 +138,7 @@ export function TokenMinter() {
             </CardHeader>
             <CardContent className="space-y-4">
                 <Button
-                    onClick={() => requestTokens(USDC_ADDRESS, 'USDC')}
+                    onClick={() => requestTokens('USDC')}
                     disabled={isLoading || !isConnected}
                     className="w-full"
                 >
@@ -135,7 +153,7 @@ export function TokenMinter() {
                 </Button>
 
                 <Button
-                    onClick={() => requestTokens(USDT_ADDRESS, 'USDT')}
+                    onClick={() => requestTokens('USDT')}
                     disabled={isLoading || !isConnected}
                     className="w-full"
                 >
@@ -150,7 +168,7 @@ export function TokenMinter() {
                 </Button>
 
                 <Button
-                    onClick={() => requestTokens(WBTC_ADDRESS, 'WBTC')}
+                    onClick={() => requestTokens('WBTC')}
                     disabled={isLoading || !isConnected}
                     className="w-full"
                 >

@@ -48,6 +48,33 @@ export const updateCurrentNetwork = (chainId: number) => {
     web3Provider = providers[chainId];
     currentContracts = getContractsForChain(chainId);
     console.log(`AlphaRouterService: Switched to chain ID ${chainId}`);
+
+    // Update token definitions with the new addresses
+    updateTokens(chainId);
+
+    // Log detailed information about the network change
+    console.log("=== NETWORK SWITCHED ===");
+    console.log(`Chain ID: ${chainId}`);
+    console.log("Contract Addresses:");
+    console.log(`UNISWAP_ROUTER: ${currentContracts.UNISWAP_ROUTER}`);
+    console.log(`UNISWAP_FACTORY: ${currentContracts.UNISWAP_FACTORY}`);
+    console.log(`UNISWAP_POSITION_MANAGER: ${currentContracts.UNISWAP_POSITION_MANAGER}`);
+    console.log("Token Addresses:");
+    console.log(`WETH: ${currentContracts.WETH}`);
+    console.log(`USDC: ${currentContracts.USDC}`);
+    console.log(`USDT: ${currentContracts.USDT}`);
+    console.log(`WBTC: ${currentContracts.WBTC}`);
+    console.log("Pool Addresses:");
+    console.log(`WETH_USDC_500: ${currentContracts.POOLS?.WETH_USDC_500 || 'Not defined'}`);
+    console.log(`USDT_USDC_500: ${currentContracts.POOLS?.USDT_USDC_500 || 'Not defined'}`);
+    console.log("======================");
+
+    // Save the current chain ID to localStorage
+    try {
+      localStorage.setItem(SELECTED_CHAIN_KEY, chainId.toString());
+    } catch (error) {
+      console.error('Error saving chainId to localStorage:', error);
+    }
   } else {
     console.error(`AlphaRouterService: No provider available for chain ID ${chainId}`);
   }
@@ -89,6 +116,12 @@ export let USDC = new Token(
 // Function to update token definitions when the network changes
 export const updateTokens = (chainId: number) => {
   const contracts = getContractsForChain(chainId);
+
+  console.log(`Updating tokens for chainId ${chainId}`);
+  console.log(`WETH address: ${contracts.WETH}`);
+  console.log(`WBTC address: ${contracts.WBTC}`);
+  console.log(`USDC address: ${contracts.USDC}`);
+  console.log(`USDT address: ${contracts.USDT}`);
 
   WETH = new Token(
     chainId,

@@ -1,16 +1,19 @@
 require('dotenv').config()
-USDT_USDC_500 = process.env.USDT_USDC_500
-WBTC_USDT_500 = process.env.WBTC_USDT_500
+USDC_USDT_500 = process.env.USDC_USDT_500
+WETH_USDC_500 = process.env.WETH_USDC_500
+RANDOM_POOL = process.env.RANDOM_POOL
 
 const { Contract } = require("ethers")
 const UniswapV3Pool = require("@uniswap/v3-core/artifacts/contracts/UniswapV3Pool.sol/UniswapV3Pool.json")
 
 async function getPoolData(poolContract) {
-  const [tickSpacing, fee, liquidity, slot0] = await Promise.all([
+  const [tickSpacing, fee, liquidity, slot0, token0, token1] = await Promise.all([
     poolContract.tickSpacing(),
     poolContract.fee(),
     poolContract.liquidity(),
     poolContract.slot0(),
+    poolContract.token0(),
+    poolContract.token1(),
   ])
 
   return {
@@ -19,6 +22,8 @@ async function getPoolData(poolContract) {
     liquidity: liquidity.toString(),
     sqrtPriceX96: slot0[0],
     tick: slot0[1],
+    token0: token0,
+    token1: token1,
   }
 }
 
@@ -26,10 +31,10 @@ async function getPoolData(poolContract) {
 async function main() {
   const provider = ethers.provider
 
-  const poolContract = new Contract(WBTC_USDT_500, UniswapV3Pool.abi, provider)
+  const poolContract = new Contract(RANDOM_POOL, UniswapV3Pool.abi, provider)
 
   const poolData = await getPoolData(poolContract)
-  console.log('usdtUsdcPoolData', poolData)
+  console.log('wethUSDCPoolData:', poolData)
 }
 
 

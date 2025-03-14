@@ -51,9 +51,19 @@ export const updatePoolServiceNetwork = (chainId: number) => {
     currentProvider = providers[chainId];
     currentContracts = getContractsForChain(chainId);
     console.log(`PoolService: Switched to chain ID ${chainId}`);
+    console.log(`PoolService: Using WETH address ${currentContracts.WETH}`);
+    console.log(`PoolService: Using USDC address ${currentContracts.USDC}`);
+    console.log(`PoolService: Using WETH/USDC pool address ${currentContracts.POOLS?.WETH_USDC_500 || 'Not defined'}`);
 
     // Update the singleton instance's provider
     poolService.updateProvider(currentProvider);
+
+    // Save the current chain ID to localStorage
+    try {
+      localStorage.setItem(SELECTED_CHAIN_KEY, chainId.toString());
+    } catch (error) {
+      console.error('Error saving chainId to localStorage:', error);
+    }
   } else {
     console.error(`PoolService: No provider available for chain ID ${chainId}`);
   }
@@ -131,7 +141,46 @@ export class PoolService {
       }
 
       const walletAddress = await this.signer.getAddress();
+      console.log(`Creating position for wallet: ${walletAddress}`);
+      console.log(`Using tokens: ${tokenA.symbol} (${tokenA.address}) and ${tokenB.symbol} (${tokenB.address})`);
+      console.log(`Current chain ID: ${currentChainId}`);
+      console.log(`Token contract addresses in this chain:`);
+      console.log(`WETH: ${currentContracts.WETH}`);
+      console.log(`USDC: ${currentContracts.USDC}`);
+      console.log(`USDT: ${currentContracts.USDT}`);
+      console.log(`WBTC: ${currentContracts.WBTC}`);
+
       const pool = await this.getPool(tokenA, tokenB, fee);
+      console.log(`Pool address: ${await this.getPoolAddress(tokenA, tokenB, fee)}`);
+      console.log(`Current pool tick: ${pool.tickCurrent}`);
+      console.log(`Current pool price: ${pool.token0Price.toSignificant(6)} ${pool.token1.symbol} per ${pool.token0.symbol}`);
+
+      // Verify if token addresses match the expected addresses for this network
+      if (tokenA.symbol === 'WETH' && tokenA.address.toLowerCase() !== currentContracts.WETH.toLowerCase()) {
+        console.warn(`TokenA (WETH) address mismatch! Using: ${tokenA.address}, Expected: ${currentContracts.WETH}`);
+      }
+      if (tokenA.symbol === 'USDC' && tokenA.address.toLowerCase() !== currentContracts.USDC.toLowerCase()) {
+        console.warn(`TokenA (USDC) address mismatch! Using: ${tokenA.address}, Expected: ${currentContracts.USDC}`);
+      }
+      if (tokenB.symbol === 'WETH' && tokenB.address.toLowerCase() !== currentContracts.WETH.toLowerCase()) {
+        console.warn(`TokenB (WETH) address mismatch! Using: ${tokenB.address}, Expected: ${currentContracts.WETH}`);
+      }
+      if (tokenB.symbol === 'USDC' && tokenB.address.toLowerCase() !== currentContracts.USDC.toLowerCase()) {
+        console.warn(`TokenB (USDC) address mismatch! Using: ${tokenB.address}, Expected: ${currentContracts.USDC}`);
+      }
+
+      // Check if position will be in range
+      const inRange = pool.tickCurrent >= tickLower && pool.tickCurrent < tickUpper;
+      console.log(`Position tick range: ${tickLower} to ${tickUpper}`);
+      console.log(`Current price is ${inRange ? 'IN' : 'OUT OF'} position range`);
+
+      if (!inRange) {
+        if (pool.tickCurrent >= tickUpper) {
+          console.warn(`WARNING: Current price is ABOVE position range. Position will be 100% ${pool.token0.symbol}.`);
+        } else {
+          console.warn(`WARNING: Current price is BELOW position range. Position will be 100% ${pool.token1.symbol}.`);
+        }
+      }
 
       // Ensure ticks are spaced correctly
       const tickSpacing = pool.tickSpacing;
@@ -460,29 +509,47 @@ export class PoolService {
   }
 
   private async approveToken(token: Token, amount: string): Promise<void> {
-    if (!this.signer) throw new Error('Wallet not connected');
+    if (!this.signer) {
+      throw new Error('Wallet not connected');
+    }
 
-    const tokenContract = new ethers.Contract(
-      token.address,
-      [
-        'function approve(address spender, uint256 amount) external returns (bool)',
-        'function allowance(address owner, address spender) external view returns (uint256)',
-      ],
-      this.signer
-    );
+    console.log(`Approving ${token.symbol} (${token.address}) for amount ${amount}`);
 
-    const walletAddress = await this.signer.getAddress();
-    const currentAllowance = await tokenContract.allowance(
-      walletAddress,
-      currentContracts.UNISWAP_POSITION_MANAGER
-    );
-
-    if (currentAllowance.lt(ethers.utils.parseUnits(amount, token.decimals))) {
-      const tx = await tokenContract.approve(
-        currentContracts.UNISWAP_POSITION_MANAGER,
-        ethers.constants.MaxUint256
+    try {
+      const walletAddress = await this.signer.getAddress();
+      const tokenContract = new ethers.Contract(
+        token.address,
+        [
+          'function approve(address spender, uint256 amount) returns (bool)',
+          'function allowance(address owner, address spender) view returns (uint256)'
+        ],
+        this.signer
       );
-      await tx.wait();
+
+      const currentAllowance = await tokenContract.allowance(
+        walletAddress,
+        currentContracts.UNISWAP_POSITION_MANAGER
+      );
+
+      console.log(`Current allowance for ${token.symbol}: ${currentAllowance.toString()}`);
+
+      // Only approve if needed
+      if (ethers.BigNumber.from(currentAllowance).lt(ethers.BigNumber.from(amount))) {
+        console.log(`Sending approval transaction for ${token.symbol}...`);
+        const tx = await tokenContract.approve(
+          currentContracts.UNISWAP_POSITION_MANAGER,
+          ethers.constants.MaxUint256 // Approve max amount to save on gas for future transactions
+        );
+
+        console.log(`Approval transaction hash for ${token.symbol}: ${tx.hash}`);
+        await tx.wait();
+        console.log(`Approval confirmed for ${token.symbol}`);
+      } else {
+        console.log(`${token.symbol} already has sufficient allowance`);
+      }
+    } catch (error) {
+      console.error(`Error approving ${token.symbol}:`, error);
+      throw new Error(`Failed to approve ${token.symbol}: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 

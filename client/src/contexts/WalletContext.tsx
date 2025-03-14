@@ -5,6 +5,7 @@ import { updateCurrentNetwork, updateTokens } from '@/lib/uniswap/AlphaRouterSer
 import { updateDexStatsProvider } from '@/lib/uniswap/DexStatsService';
 import { updatePoolServiceNetwork } from '@/lib/uniswap/PoolService';
 import { CHAIN_IDS, getContractsForChain } from '@/lib/constants';
+import { web3Service } from '@/lib/web3Service';
 
 // Local storage key for the selected chain
 const SELECTED_CHAIN_KEY = 'selectedChainId';
@@ -107,125 +108,200 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   };
 
   // Switch to the specified network
-  const switchToNetwork = async (chainId: number): Promise<boolean> => {
-    if (!window.ethereum) return false;
-
-    const targetNetwork = NETWORKS[chainId];
-    if (!targetNetwork) {
-      toast({
-        title: "Network Error",
-        description: `Network with chainId ${chainId} not supported`,
-        variant: "destructive"
-      });
-      return false;
-    }
-
+  async function switchToNetwork(chainId: number): Promise<boolean> {
     try {
-      // Try to switch to the network
-      await window.ethereum.request({
-        method: 'wallet_switchEthereumChain',
-        params: [{ chainId: targetNetwork.chainId }],
-      });
-      setCurrentNetwork(targetNetwork);
-
-      // Save the selected chain to local storage
-      try {
-        localStorage.setItem(SELECTED_CHAIN_KEY, chainId.toString());
-      } catch (error) {
-        console.error('Error saving to localStorage:', error);
+      if (!window.ethereum) {
+        toast({
+          title: "MetaMask not found",
+          description: "Please install MetaMask to switch networks.",
+          variant: "destructive",
+        });
+        return false;
       }
 
-      // Update the network in services
-      updateCurrentNetwork(chainId);
-      updateTokens(chainId);
-      updateDexStatsProvider(chainId);
-      updatePoolServiceNetwork(chainId);
+      const network = NETWORKS[chainId];
+      if (!network) {
+        toast({
+          title: "Invalid network",
+          description: "The selected network is not supported.",
+          variant: "destructive",
+        });
+        return false;
+      }
 
-      return true;
-    } catch (switchError: any) {
-      // This error code indicates that the chain has not been added to MetaMask.
-      if (switchError.code === 4902) {
-        try {
-          await window.ethereum.request({
-            method: 'wallet_addEthereumChain',
-            params: [targetNetwork],
-          });
-          setCurrentNetwork(targetNetwork);
+      console.log(`Attempting to switch to network: ${network.chainName} (${chainId})`);
 
-          // Save the selected chain to local storage
+      try {
+        // Try to switch to the network
+        await window.ethereum.request({
+          method: 'wallet_switchEthereumChain',
+          params: [{ chainId: network.chainId }],
+        });
+
+        // If we get here, the switch was successful
+        setCurrentNetwork(network);
+
+        // Update all services with the new network
+        updateCurrentNetwork(chainId);
+        updateDexStatsProvider(chainId);
+        updatePoolServiceNetwork(chainId);
+
+        // Also explicitly update the web3Service
+        web3Service.updateNetwork(chainId);
+
+        // Save the selected chain to localStorage
+        localStorage.setItem(SELECTED_CHAIN_KEY, chainId.toString());
+
+        // Force reconnect to update provider and signer with new network
+        if (provider && signer) {
+          const newProvider = new ethers.providers.Web3Provider(window.ethereum);
+          setProvider(newProvider);
+          const newSigner = newProvider.getSigner();
+          setSigner(newSigner);
+
+          console.log("Provider and signer updated for new network");
+
+          // Force UI to refresh token balances
+          const currentAddress = await newSigner.getAddress();
+          setAddress(null); // Clear address briefly
+          setTimeout(() => setAddress(currentAddress), 100); // Set it back after a brief delay
+
+          // Explicitly refresh balances with the latest contract addresses
+          setTimeout(async () => {
+            try {
+              await web3Service.refreshAndLogTokenBalances(currentAddress);
+              console.log(`Balances refreshed after switching to ${network.chainName}`);
+            } catch (error) {
+              console.error('Error refreshing balances after network switch:', error);
+            }
+          }, 2000); // Wait 2 seconds after network switch
+        }
+
+        toast({
+          title: "Network switched",
+          description: `Successfully switched to ${network.chainName}`,
+        });
+        return true;
+      } catch (switchError: any) {
+        // This error code indicates that the chain has not been added to MetaMask
+        if (switchError.code === 4902) {
+          console.log(`Network not found, attempting to add: ${network.chainName}`);
           try {
-            localStorage.setItem(SELECTED_CHAIN_KEY, chainId.toString());
-          } catch (error) {
-            console.error('Error saving to localStorage:', error);
+            await window.ethereum.request({
+              method: 'wallet_addEthereumChain',
+              params: [
+                {
+                  chainId: network.chainId,
+                  chainName: network.chainName,
+                  rpcUrls: network.rpcUrls,
+                  nativeCurrency: network.nativeCurrency,
+                }
+              ],
+            });
+
+            // If we get here, the network was added successfully
+            // Now try switching again
+            return switchToNetwork(chainId);
+          } catch (addError) {
+            console.error('Error adding network:', addError);
+            toast({
+              title: "Failed to add network",
+              description: "Failed to add the selected network to MetaMask.",
+              variant: "destructive",
+            });
+            return false;
           }
-
-          // Update the network in services
-          updateCurrentNetwork(chainId);
-          updateTokens(chainId);
-          updateDexStatsProvider(chainId);
-          updatePoolServiceNetwork(chainId);
-
-          return true;
-        } catch (addError) {
-          console.error('Error adding chain:', addError);
+        } else {
+          console.error('Error switching network:', switchError);
           toast({
-            title: "Network Error",
-            description: "Failed to add network to MetaMask",
-            variant: "destructive"
+            title: "Failed to switch network",
+            description: "Failed to switch to the selected network.",
+            variant: "destructive",
           });
           return false;
         }
       }
-      console.error('Error switching chain:', switchError);
+    } catch (error) {
+      console.error('Error in switchToNetwork:', error);
+      toast({
+        title: "Network switch error",
+        description: "An unexpected error occurred while switching networks.",
+        variant: "destructive",
+      });
       return false;
     }
-  };
+  }
 
   const connect = async () => {
-    if (!window.ethereum) {
-      toast({
-        title: "Wallet Error",
-        description: "Please install MetaMask!",
-        variant: "destructive"
-      });
-      return;
-    }
+    // Only connect if not already connected
+    if (address) return;
 
     try {
-      // First, ensure we're on the correct network
-      const switched = await switchToNetwork(currentNetwork.chainIdNumber);
-      if (!switched) {
+      if (!window.ethereum) {
         toast({
-          title: "Network Error",
-          description: `Please switch to ${currentNetwork.chainName}!`,
-          variant: "destructive"
+          title: "MetaMask not found",
+          description: "Please install MetaMask to connect.",
+          variant: "destructive",
         });
         return;
       }
 
       // Request account access
-      const accounts = await window.ethereum.request({
-        method: "eth_requestAccounts"
-      });
+      const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
 
-      const web3Provider = new ethers.providers.Web3Provider(window.ethereum);
-      const web3Signer = web3Provider.getSigner();
-      const account = accounts[0];
+      // If we get here, the user approved the connection
+      const newProvider = new ethers.providers.Web3Provider(window.ethereum);
+      setProvider(newProvider);
 
-      setProvider(web3Provider);
-      setSigner(web3Signer);
-      setAddress(account);
+      const newSigner = newProvider.getSigner();
+      setSigner(newSigner);
 
-      toast({
-        title: "Connected",
-        description: "Wallet connected successfully!",
-      });
+      const connectedAddress = await newSigner.getAddress();
+      setAddress(connectedAddress);
+
+      // Get current network info and update context
+      const chainId = await window.ethereum.request({ method: 'eth_chainId' });
+      const numericChainId = parseInt(chainId, 16);
+
+      // If the connected network is supported, set it as current
+      if (NETWORKS[numericChainId]) {
+        setCurrentNetwork(NETWORKS[numericChainId]);
+
+        // Sync all services with the current network
+        updateCurrentNetwork(numericChainId);
+        updateDexStatsProvider(numericChainId);
+        updatePoolServiceNetwork(numericChainId);
+
+        // Save to localStorage
+        localStorage.setItem(SELECTED_CHAIN_KEY, numericChainId.toString());
+      } else {
+        // If not supported, try to switch to the default network
+        const defaultChainId = CHAIN_IDS.SONIC_BLAZE_TESTNET;
+        try {
+          await switchToNetwork(defaultChainId);
+        } catch (error) {
+          console.error('Error switching to default network:', error);
+        }
+      }
+
+      console.log(`Connected to wallet: ${connectedAddress}`);
+      console.log(`Current network: ${currentNetwork.chainName} (${currentNetwork.chainIdNumber})`);
+
+      // Wait a short time for all connections to establish
+      setTimeout(async () => {
+        try {
+          // Refresh and log all token balances for debugging
+          await web3Service.refreshAndLogTokenBalances(connectedAddress);
+        } catch (error) {
+          console.error('Error refreshing balances after connect:', error);
+        }
+      }, 1000);
     } catch (error) {
-      console.error("Error connecting to MetaMask:", error);
+      console.error('Error connecting wallet:', error);
       toast({
         title: "Connection Error",
-        description: "Failed to connect wallet",
-        variant: "destructive"
+        description: "Failed to connect to wallet.",
+        variant: "destructive",
       });
     }
   };

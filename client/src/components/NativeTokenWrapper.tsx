@@ -6,9 +6,7 @@ import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
 import { useWallet } from '@/contexts/WalletContext';
 import { Loader2 } from 'lucide-react';
-
-// WETH contract address from environment
-const WETH_ADDRESS = import.meta.env.VITE_WETH_ADDRESS;
+import { getContractsForChain } from '@/lib/constants';
 
 // WETH9 ABI - only including the functions we need
 const WETH9ABI = [
@@ -46,23 +44,32 @@ const WETH9ABI = [
 
 export function NativeTokenWrapper() {
     const { toast } = useToast();
-    const { address, isConnected, provider, signer } = useWallet();
+    const { address, isConnected, provider, signer, currentNetwork } = useWallet();
     const [amount, setAmount] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [balance, setBalance] = useState('0');
     const [wethBalance, setWethBalance] = useState('0');
+
+    // Get the WETH address for the current network
+    const getWethAddress = () => {
+        const contracts = getContractsForChain(currentNetwork.chainIdNumber);
+        return contracts.WETH;
+    };
 
     // Get native token and WETH balances
     useEffect(() => {
         const fetchBalances = async () => {
             if (isConnected && address && provider) {
                 try {
+                    const wethAddress = getWethAddress();
+                    console.log(`Using WETH address: ${wethAddress}`);
+
                     // Get native token balance
                     const nativeBalance = await provider.getBalance(address);
                     setBalance(ethers.utils.formatEther(nativeBalance));
 
                     // Get WETH balance
-                    const wethContract = new ethers.Contract(WETH_ADDRESS, WETH9ABI, provider);
+                    const wethContract = new ethers.Contract(wethAddress, WETH9ABI, provider);
                     const wethBal = await wethContract.balanceOf(address);
                     setWethBalance(ethers.utils.formatEther(wethBal));
                 } catch (error) {
@@ -75,7 +82,7 @@ export function NativeTokenWrapper() {
         // Set up interval to refresh balances
         const interval = setInterval(fetchBalances, 10000);
         return () => clearInterval(interval);
-    }, [isConnected, address, provider]);
+    }, [isConnected, address, provider, currentNetwork]);
 
     const wrapToken = async () => {
         if (!isConnected || !address || !signer) {
@@ -98,7 +105,8 @@ export function NativeTokenWrapper() {
 
         setIsLoading(true);
         try {
-            const wethContract = new ethers.Contract(WETH_ADDRESS, WETH9ABI, signer);
+            const wethAddress = getWethAddress();
+            const wethContract = new ethers.Contract(wethAddress, WETH9ABI, signer);
             const weiAmount = ethers.utils.parseEther(amount);
 
             // Deposit ETH to get WETH
@@ -154,7 +162,8 @@ export function NativeTokenWrapper() {
 
         setIsLoading(true);
         try {
-            const wethContract = new ethers.Contract(WETH_ADDRESS, WETH9ABI, signer);
+            const wethAddress = getWethAddress();
+            const wethContract = new ethers.Contract(wethAddress, WETH9ABI, signer);
             const weiAmount = ethers.utils.parseEther(amount);
 
             // Withdraw WETH to get ETH
