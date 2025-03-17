@@ -858,6 +858,58 @@ Provide analysis in JSON format:
     }
   });
 
+  // Add this endpoint for fetching AI wallet private key
+  app.post("/api/ai-wallet/key", async (req, res) => {
+    try {
+      const { userAddress, walletId } = req.body;
+
+      if (!userAddress) {
+        return res.status(400).json({ error: 'Missing userAddress parameter' });
+      }
+
+      console.log(`Fetching AI wallet private key for user: ${userAddress}${walletId ? `, wallet ID: ${walletId}` : ''}`);
+
+      // Get all AI wallets for the user
+      const wallets = await storage.getAIWallets(userAddress);
+
+      if (!wallets || wallets.length === 0) {
+        return res.status(404).json({ error: 'No AI wallet found for this user' });
+      }
+
+      let targetWallet;
+
+      // If walletId is provided, find that specific wallet
+      if (walletId) {
+        targetWallet = wallets.find(w => w.id.toString() === walletId.toString());
+        if (!targetWallet) {
+          return res.status(404).json({ error: 'AI wallet with the specified ID not found' });
+        }
+      } else {
+        // Otherwise, find the active wallet or use the most recently created one
+        targetWallet = wallets.find(w => w.isActive);
+        if (!targetWallet) {
+          // Sort by createdAt (most recent first) and take the first one
+          wallets.sort((a, b) => {
+            const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+            const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+            return dateB - dateA;
+          });
+          targetWallet = wallets[0];
+        }
+      }
+
+      if (!targetWallet.privateKey) {
+        return res.status(404).json({ error: 'Private key not found for this wallet' });
+      }
+
+      console.log(`Found private key for AI wallet ${targetWallet.aiWalletAddress}`);
+      res.json({ privateKey: targetWallet.privateKey });
+    } catch (error) {
+      console.error('Error fetching AI wallet private key:', error);
+      res.status(500).json({ error: 'Failed to fetch AI wallet private key' });
+    }
+  });
+
   // Add these new routes for memecoin strategy config
   app.get('/api/strategy-config/memecoin', async (request, reply) => {
     return { config: memeStrategyConfig };

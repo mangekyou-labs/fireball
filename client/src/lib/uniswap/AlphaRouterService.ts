@@ -50,7 +50,7 @@ export const updateCurrentNetwork = (chainId: number) => {
     console.log(`AlphaRouterService: Switched to chain ID ${chainId}`);
 
     // Update token definitions with the new addresses
-    updateTokens(chainId);
+    createTokens();
 
     // Log detailed information about the network change
     console.log("=== NETWORK SWITCHED ===");
@@ -113,47 +113,49 @@ export let USDC = new Token(
   'Circle USD'
 );
 
-// Function to update token definitions when the network changes
-export const updateTokens = (chainId: number) => {
-  const contracts = getContractsForChain(chainId);
+// Function to create tokens with the current chain ID
+export const createTokens = () => {
+  const currentContracts = getContractsForChain(currentChainId);
 
-  console.log(`Updating tokens for chainId ${chainId}`);
-  console.log(`WETH address: ${contracts.WETH}`);
-  console.log(`WBTC address: ${contracts.WBTC}`);
-  console.log(`USDC address: ${contracts.USDC}`);
-  console.log(`USDT address: ${contracts.USDT}`);
+  console.log('Creating tokens with current chain ID:', currentChainId);
+  console.log('WETH address:', currentContracts.WETH);
+  console.log('USDC address:', currentContracts.USDC);
 
+  // Update global token definitions
   WETH = new Token(
-    chainId,
-    contracts.WETH,
+    currentChainId,
+    currentContracts.WETH,
     18,
     'WETH',
     'Wrapped Ether'
   );
 
+  USDC = new Token(
+    currentChainId,
+    currentContracts.USDC,
+    18,
+    'USDC',
+    'Circle USD'
+  );
+
+  // Also update WBTC and USDT for completeness
   WBTC = new Token(
-    chainId,
-    contracts.WBTC,
+    currentChainId,
+    currentContracts.WBTC,
     18,
     'WBTC',
     'Wrapped Bitcoin'
   );
 
   USDT = new Token(
-    chainId,
-    contracts.USDT,
+    currentChainId,
+    currentContracts.USDT,
     18,
     'USDT',
     'Tether USD'
   );
 
-  USDC = new Token(
-    chainId,
-    contracts.USDC,
-    18,
-    'USDC',
-    'Circle USD'
-  );
+  return { WETH, USDC, WBTC, USDT };
 };
 
 // Contract instances - these will use the current provider and contracts
@@ -182,7 +184,8 @@ export const getFactoryContract = () => {
 
 // Initialize the service with the saved chain ID
 updateCurrentNetwork(DEFAULT_CHAIN_ID);
-updateTokens(DEFAULT_CHAIN_ID);
+// Also directly create tokens with the current chain ID to ensure they're initialized correctly
+createTokens();
 
 interface PoolState {
   liquidity: BigNumber;
@@ -204,119 +207,185 @@ const getPoolState = async (poolContract: ethers.Contract): Promise<PoolState> =
   };
 };
 
+// Function to get pool
 export const getPool = async (tokenA: Token, tokenB: Token): Promise<Pool> => {
   try {
+    // Make sure tokens are using the current chain ID
+    createTokens();
+
+    // If the chain ID doesn't match the current chain, recreate the tokens
+    if (tokenA.chainId !== currentChainId || tokenB.chainId !== currentChainId) {
+      console.log('Token chain IDs do not match current chain ID, recreating tokens');
+      const tokens = createTokens();
+      tokenA = tokenA.symbol === 'WETH' ? tokens.WETH : tokenA.symbol === 'USDC' ? tokens.USDC : tokenA;
+      tokenB = tokenB.symbol === 'WETH' ? tokens.WETH : tokenB.symbol === 'USDC' ? tokens.USDC : tokenB;
+    }
+
     console.log(`Attempting to find pool for ${tokenA.symbol}/${tokenB.symbol}`);
     console.log(`Token addresses: ${tokenA.address}/${tokenB.address}`);
     console.log(`Pool fee: ${POOL_FEE}`);
     console.log(`Factory address: ${currentContracts.UNISWAP_FACTORY}`);
 
-    // Verify the factory contract is properly initialized
-    try {
-      const owner = await getFactoryContract().owner();
-      console.log(`Factory owner: ${owner}`);
-    } catch (error) {
-      console.error('Error calling factory.owner():', error);
+    // First check if there's a specific pool address in the currentContracts.POOLS
+    let poolAddress: string | undefined;
+
+    if (currentContracts.POOLS) {
+      console.log(`Checking for predefined pools in contracts config`);
+
+      // Try to find the WETH_USDC_500 pool
+      if (
+        (tokenA.symbol === 'WETH' && tokenB.symbol === 'USDC') ||
+        (tokenA.symbol === 'USDC' && tokenB.symbol === 'WETH')
+      ) {
+        poolAddress = currentContracts.POOLS.WETH_USDC_500;
+        console.log(`Found predefined WETH/USDC pool: ${poolAddress}`);
+      }
+      // Try to find the USDT_USDC_500 pool
+      else if (
+        (tokenA.symbol === 'USDT' && tokenB.symbol === 'USDC') ||
+        (tokenA.symbol === 'USDC' && tokenB.symbol === 'USDT')
+      ) {
+        poolAddress = currentContracts.POOLS.USDT_USDC_500;
+        console.log(`Found predefined USDT/USDC pool: ${poolAddress}`);
+      }
+      // Add other predefined pools as needed
+
+      // Apply checksumming if a pool address was found
+      if (poolAddress) {
+        try {
+          poolAddress = ethers.utils.getAddress(poolAddress);
+          console.log(`Using checksummed pool address: ${poolAddress}`);
+        } catch (error) {
+          console.error('Error checksumming predefined pool address:', error);
+          // Reset poolAddress to force factory lookup
+          poolAddress = undefined;
+        }
+      }
     }
 
-    // Try to get the pool address from the factory
-    let poolAddress: string;
-    try {
-      poolAddress = await getFactoryContract().getPool(
-        tokenA.address,
-        tokenB.address,
-        POOL_FEE
-      );
-      console.log(`Pool address from factory: ${poolAddress}`);
-    } catch (error) {
-      console.error('Error calling factory.getPool():', error);
-      throw error;
-    }
-
-    // Check if the pool address is valid
-    if (poolAddress === ethers.constants.AddressZero) {
-      console.error(`No pool found for ${tokenA.symbol}/${tokenB.symbol} with fee ${POOL_FEE}`);
-
-      // Try with reversed token order
-      console.log(`Trying reversed token order ${tokenB.symbol}/${tokenA.symbol}`);
+    // If we didn't find a predefined pool, try to get it from the factory
+    if (!poolAddress) {
+      // Verify the factory contract is properly initialized
       try {
-        const reversedPoolAddress = await getFactoryContract().getPool(
-          tokenB.address,
+        const owner = await getFactoryContract().owner();
+        console.log(`Factory owner: ${owner}`);
+      } catch (error) {
+        console.error('Error calling factory.owner():', error);
+      }
+
+      // Try to get the pool address from the factory
+      try {
+        poolAddress = await getFactoryContract().getPool(
           tokenA.address,
+          tokenB.address,
           POOL_FEE
         );
-        console.log(`Reversed pool address: ${reversedPoolAddress}`);
-
-        if (reversedPoolAddress !== ethers.constants.AddressZero) {
-          poolAddress = reversedPoolAddress;
-        } else {
-          // Try with different fee tiers if the default one doesn't work
-          const feeTiers = [100, 500, 3000, 10000]; // 0.01%, 0.05%, 0.3%, 1%
-          let foundPool = false;
-
-          for (const fee of feeTiers) {
-            if (fee === POOL_FEE) continue; // Skip the one we already tried
-
-            console.log(`Trying with fee tier ${fee}`);
-            try {
-              const altPoolAddress = await getFactoryContract().getPool(
-                tokenA.address,
-                tokenB.address,
-                fee
-              );
-
-              if (altPoolAddress !== ethers.constants.AddressZero) {
-                console.log(`Found pool with fee ${fee}: ${altPoolAddress}`);
-                poolAddress = altPoolAddress;
-                foundPool = true;
-                break;
-              }
-
-              // Try reversed order with this fee
-              const reversedAltPoolAddress = await getFactoryContract().getPool(
-                tokenB.address,
-                tokenA.address,
-                fee
-              );
-
-              if (reversedAltPoolAddress !== ethers.constants.AddressZero) {
-                console.log(`Found reversed pool with fee ${fee}: ${reversedAltPoolAddress}`);
-                poolAddress = reversedAltPoolAddress;
-                foundPool = true;
-                break;
-              }
-            } catch (error) {
-              console.error(`Error checking fee tier ${fee}:`, error);
-            }
-          }
-
-          // If we still don't have a pool address, check if we have a known pool address
-          if (!foundPool) {
-            // Check if the pool exists in the environment variables
-            const knownPoolKey = `VITE_${tokenA.symbol}_${tokenB.symbol}_500`;
-            const reversedPoolKey = `VITE_${tokenB.symbol}_${tokenA.symbol}_500`;
-
-            console.log(`Checking for known pool keys: ${knownPoolKey} or ${reversedPoolKey}`);
-
-            const knownPoolAddress = import.meta.env[knownPoolKey] || import.meta.env[reversedPoolKey];
-
-            if (knownPoolAddress) {
-              console.log(`Found known pool address from environment: ${knownPoolAddress}`);
-              poolAddress = knownPoolAddress;
-            } else {
-              throw new Error(`No pool found for ${tokenA.symbol}/${tokenB.symbol} with any fee tier`);
-            }
-          }
-        }
+        console.log(`Pool address from factory: ${poolAddress}`);
       } catch (error) {
-        console.error('Error checking reversed token order:', error);
+        console.error('Error calling factory.getPool():', error);
         throw error;
+      }
+
+      // Check if the pool address is valid
+      if (poolAddress === ethers.constants.AddressZero) {
+        console.error(`No pool found for ${tokenA.symbol}/${tokenB.symbol} with fee ${POOL_FEE}`);
+
+        // Try with reversed token order
+        console.log(`Trying reversed token order ${tokenB.symbol}/${tokenA.symbol}`);
+        try {
+          const reversedPoolAddress = await getFactoryContract().getPool(
+            tokenB.address,
+            tokenA.address,
+            POOL_FEE
+          );
+          console.log(`Reversed pool address: ${reversedPoolAddress}`);
+
+          if (reversedPoolAddress !== ethers.constants.AddressZero) {
+            poolAddress = reversedPoolAddress;
+          } else {
+            // Try with different fee tiers if the default one doesn't work
+            const feeTiers = [100, 500, 3000, 10000]; // 0.01%, 0.05%, 0.3%, 1%
+            let foundPool = false;
+
+            for (const fee of feeTiers) {
+              if (fee === POOL_FEE) continue; // Skip the one we already tried
+
+              console.log(`Trying with fee tier ${fee}`);
+              try {
+                const altPoolAddress = await getFactoryContract().getPool(
+                  tokenA.address,
+                  tokenB.address,
+                  fee
+                );
+
+                if (altPoolAddress !== ethers.constants.AddressZero) {
+                  console.log(`Found pool with fee ${fee}: ${altPoolAddress}`);
+                  poolAddress = altPoolAddress;
+                  foundPool = true;
+                  break;
+                }
+
+                // Try reversed order with this fee
+                const reversedAltPoolAddress = await getFactoryContract().getPool(
+                  tokenB.address,
+                  tokenA.address,
+                  fee
+                );
+
+                if (reversedAltPoolAddress !== ethers.constants.AddressZero) {
+                  console.log(`Found reversed pool with fee ${fee}: ${reversedAltPoolAddress}`);
+                  poolAddress = reversedAltPoolAddress;
+                  foundPool = true;
+                  break;
+                }
+              } catch (error) {
+                console.error(`Error checking fee tier ${fee}:`, error);
+              }
+            }
+
+            // If we still don't have a pool address, check if we have a known pool address
+            if (!foundPool) {
+              // Check if the pool exists in the environment variables
+              const knownPoolKey = `VITE_${tokenA.symbol}_${tokenB.symbol}_500`;
+              const reversedPoolKey = `VITE_${tokenB.symbol}_${tokenA.symbol}_500`;
+
+              console.log(`Checking for known pool keys: ${knownPoolKey} or ${reversedPoolKey}`);
+
+              const knownPoolAddress = import.meta.env[knownPoolKey] || import.meta.env[reversedPoolKey];
+
+              if (knownPoolAddress) {
+                console.log(`Found known pool address from environment: ${knownPoolAddress}`);
+                try {
+                  // Apply proper checksumming to the environment pool address
+                  poolAddress = ethers.utils.getAddress(knownPoolAddress);
+                  console.log(`Using checksummed environment pool address: ${poolAddress}`);
+                } catch (error) {
+                  console.error('Error checksumming environment pool address:', error);
+                  throw new Error(`Invalid pool address format: ${knownPoolAddress}`);
+                }
+              } else {
+                throw new Error(`No pool found for ${tokenA.symbol}/${tokenB.symbol} with any fee tier`);
+              }
+            }
+          }
+        } catch (error) {
+          console.error('Error checking reversed token order:', error);
+          throw error;
+        }
       }
     }
 
     // Now that we have a pool address, create the Pool object
+    if (!poolAddress) {
+      throw new Error(`Could not find a pool for ${tokenA.symbol}/${tokenB.symbol}`);
+    }
+
+    // Ensure the pool address has proper checksum format
+    const checksummedPoolAddress = ethers.utils.getAddress(poolAddress);
+    console.log(`Creating pool contract with checksummed address: ${checksummedPoolAddress}`);
+
     const poolContract = new ethers.Contract(
-      poolAddress,
+      checksummedPoolAddress,
       IUniswapV3PoolABI.abi,
       web3Provider
     );
@@ -373,7 +442,8 @@ export const getPrice = async (
   outputToken: Token,
   slippageAmount: number,
   deadline: number,
-  walletAddress: string
+  walletAddress: string,
+  poolAddress?: string
 ): Promise<[SwapTransaction | undefined, string | undefined, string | undefined]> => {
   if (!inputAmount || !walletAddress || parseFloat(inputAmount) <= 0) {
     console.error("Invalid input parameters");
@@ -385,14 +455,68 @@ export const getPrice = async (
     console.log(`Input token decimals: ${inputToken.decimals}, Output token decimals: ${outputToken.decimals}`);
     console.log(`Input token address: ${inputToken.address}, Output token address: ${outputToken.address}`);
 
+    if (poolAddress) {
+      console.log(`Using provided pool address: ${poolAddress}`);
+    }
+
     const wei = ethers.utils.parseUnits(inputAmount, inputToken.decimals);
     console.log(`Parsed input amount: ${wei.toString()}`);
 
     // Get the pool and check liquidity
-    console.log("Fetching pool to check liquidity...");
-    const pool = await getPool(inputToken, outputToken);
-    console.log(`Pool found: ${pool.token0.symbol}/${pool.token1.symbol}`);
-    console.log(`Pool price: ${pool.token1Price.toFixed(6)}`);
+    let pool: Pool;
+
+    if (poolAddress) {
+      // If pool address is provided, create pool directly from that address
+      console.log("Creating pool from provided address...");
+
+      // Get a proper-checksummed pool address
+      const checksummedPoolAddress = ethers.utils.getAddress(poolAddress);
+
+      // Create pool contract to get the pool data
+      const poolContract = new ethers.Contract(
+        checksummedPoolAddress,
+        IUniswapV3PoolABI.abi,
+        web3Provider
+      );
+
+      // Get pool immutables
+      const [token0, token1, fee] = await Promise.all([
+        poolContract.token0(),
+        poolContract.token1(),
+        poolContract.fee()
+      ]);
+
+      console.log(`Pool tokens: ${token0} / ${token1}`);
+      console.log(`Pool fee: ${fee}`);
+
+      // Get pool state
+      const state = await getPoolState(poolContract);
+      console.log(`Pool liquidity: ${state.liquidity.toString()}`);
+
+      // Ensure tokens are in the right order
+      const token0IsInput = token0.toLowerCase() === inputToken.address.toLowerCase();
+      const [tokenA, tokenB] = token0IsInput
+        ? [inputToken, outputToken]
+        : [outputToken, inputToken];
+
+      // Create and use the pool
+      pool = new Pool(
+        tokenA,
+        tokenB,
+        fee,
+        state.sqrtPriceX96.toString(),
+        state.liquidity.toString(),
+        state.tick
+      );
+
+      console.log(`Pool created from address with price: ${pool.token1Price.toFixed(6)}`);
+    } else {
+      // If no pool address provided, use the standard getPool function
+      console.log("Fetching pool to check liquidity...");
+      pool = await getPool(inputToken, outputToken);
+      console.log(`Pool found: ${pool.token0.symbol}/${pool.token1.symbol}`);
+      console.log(`Pool price: ${pool.token1Price.toFixed(6)}`);
+    }
 
     // Check if pool has sufficient liquidity
     const liquidity = parseFloat(pool.liquidity.toString());
@@ -645,9 +769,13 @@ export const checkDirectPoolLiquidity = async (tokenA: Token, tokenB: Token): Pr
         console.log(`Found pool at address: ${poolAddress} with fee ${fee}`);
 
         try {
+          // Ensure the pool address has proper checksum format
+          const checksummedPoolAddress = ethers.utils.getAddress(poolAddress);
+          console.log(`Creating pool contract with checksummed address: ${checksummedPoolAddress}`);
+
           // Create contract instance similar to the hardhat script
           const poolContract = new ethers.Contract(
-            poolAddress,
+            checksummedPoolAddress,
             IUniswapV3PoolABI.abi,
             web3Provider
           );
@@ -683,8 +811,12 @@ export const checkDirectPoolLiquidity = async (tokenA: Token, tokenB: Token): Pr
           console.log(`Found reversed pool at address: ${poolAddress} with fee ${fee}`);
 
           try {
+            // Ensure the pool address has proper checksum format
+            const checksummedPoolAddress = ethers.utils.getAddress(poolAddress);
+            console.log(`Creating reversed pool contract with checksummed address: ${checksummedPoolAddress}`);
+
             const poolContract = new ethers.Contract(
-              poolAddress,
+              checksummedPoolAddress,
               IUniswapV3PoolABI.abi,
               web3Provider
             );
@@ -718,8 +850,12 @@ export const checkDirectPoolLiquidity = async (tokenA: Token, tokenB: Token): Pr
       console.log(`Found known pool address from environment: ${knownPoolAddress}`);
 
       try {
+        // Ensure the pool address has proper checksum format
+        const checksummedPoolAddress = ethers.utils.getAddress(knownPoolAddress);
+        console.log(`Creating known pool contract with checksummed address: ${checksummedPoolAddress}`);
+
         const poolContract = new ethers.Contract(
-          knownPoolAddress,
+          checksummedPoolAddress,
           IUniswapV3PoolABI.abi,
           web3Provider
         );

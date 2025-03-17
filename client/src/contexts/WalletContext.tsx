@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { ethers } from 'ethers';
 import { useToast } from '@/hooks/use-toast';
-import { updateCurrentNetwork, updateTokens } from '@/lib/uniswap/AlphaRouterService';
+import { updateCurrentNetwork, createTokens } from '@/lib/uniswap/AlphaRouterService';
 import { updateDexStatsProvider } from '@/lib/uniswap/DexStatsService';
 import { updatePoolServiceNetwork } from '@/lib/uniswap/PoolService';
 import { CHAIN_IDS, getContractsForChain } from '@/lib/constants';
@@ -321,7 +321,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     // Initialize services with the saved chain ID
     const savedChainId = getSavedChainId();
     updateCurrentNetwork(savedChainId);
-    updateTokens(savedChainId);
+    createTokens();
     updateDexStatsProvider(savedChainId);
     updatePoolServiceNetwork(savedChainId);
   }, []);
@@ -355,7 +355,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
           // Update the network in services
           updateCurrentNetwork(chainId);
-          updateTokens(chainId);
+          createTokens();
           updateDexStatsProvider(chainId);
           updatePoolServiceNetwork(chainId);
 

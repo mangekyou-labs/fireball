@@ -8,6 +8,7 @@ import { PoolManagement } from "@/components/PoolManagement";
 import { AIStrategyPanel } from "@/components/AIStrategyPanel";
 import { CrossChainAgent } from "@/components/CrossChainAgent";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { AiOnChainTrading } from "@/components/AiOnChainTrading";
 
 export default function Dashboard() {
   const { provider, signer, address } = useWallet();
@@ -70,7 +71,26 @@ export default function Dashboard() {
           </TabsContent>
 
           <TabsContent value="ai">
-            <AIStrategyPanel />
+            <div className="space-y-8">
+              <Card>
+                <CardHeader>
+                  <CardTitle>AI Strategy Management</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <AIStrategyPanel disableAiTrading={false} />
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>AI On-Chain Trading</CardTitle>
+                  <p className="text-sm text-muted-foreground">Use AI to execute trades directly on-chain with your AI wallet</p>
+                </CardHeader>
+                <CardContent>
+                  <AiOnChainTrading />
+                </CardContent>
+              </Card>
+            </div>
           </TabsContent>
 
           <TabsContent value="cross-chain">

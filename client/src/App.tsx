@@ -8,7 +8,7 @@ import { QueryClientProvider } from '@tanstack/react-query';
 import { queryClient } from '@/utils/query-client';
 import { useEffect } from 'react';
 import { CHAIN_IDS, getContractsForChain } from '@/lib/constants';
-import { updateCurrentNetwork, updateTokens } from '@/lib/uniswap/AlphaRouterService';
+import { updateCurrentNetwork, createTokens } from '@/lib/uniswap/AlphaRouterService';
 import { updateDexStatsProvider } from '@/lib/uniswap/DexStatsService';
 import { updatePoolServiceNetwork } from '@/lib/uniswap/PoolService';
 
@@ -30,7 +30,7 @@ const initializeNetworkServices = () => {
 
   const chainId = getSavedChainId();
   updateCurrentNetwork(chainId);
-  updateTokens(chainId);
+  createTokens();
   updateDexStatsProvider(chainId);
   updatePoolServiceNetwork(chainId);
   console.log(`App: Initialized with chain ID ${chainId}`);
@@ -40,6 +40,11 @@ const initializeNetworkServices = () => {
 initializeNetworkServices();
 
 export default function App() {
+  useEffect(() => {
+    // Make contract info available for debugging
+    (window as any).getContractsForChain = getContractsForChain;
+  }, []);
+
   return (
     <QueryClientProvider client={queryClient}>
       <WalletProvider>

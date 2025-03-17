@@ -6,7 +6,7 @@ import { Brain, AlertTriangle, Wallet } from "lucide-react";
 import { apiRequest } from "@/lib/api";
 import { analyzeMarketConditions, generateTradingStrategy, generateDexTradingDecision } from "@/lib/aiService";
 import { useToast } from "@/hooks/use-toast";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Slider } from "@/components/ui/slider";
@@ -27,12 +27,15 @@ import { strategyService, MemeStrategyConfig } from "@/lib/strategyService";
 import { USDC, WBTC, WETH, USDT } from "@/lib/uniswap/AlphaRouterService"; // Import token definitions
 import { ArbitrageStrategyModal, ArbitrageStrategyConfig } from '@/components/ArbitrageStrategyModal';
 import { AIRecommendationAnalyst } from "./AIRecommendationAnalyst";
+import { aiTradingService } from '../lib/aiTradingService';
+import { getContractsForChain } from '@/lib/constants'; // Import getContractsForChain
 
 // Use environment variables for token addresses
-const USDC_ADDRESS = import.meta.env.VITE_USDC_ADDRESS;
-const WBTC_ADDRESS = import.meta.env.VITE_WBTC_ADDRESS;
-const WETH_ADDRESS = import.meta.env.VITE_WETH_ADDRESS;
-const USDT_ADDRESS = import.meta.env.VITE_USDT_ADDRESS;
+// Removing these since we'll use constants instead
+// const USDC_ADDRESS = import.meta.env.VITE_USDC_ADDRESS;
+// const WBTC_ADDRESS = import.meta.env.VITE_WBTC_ADDRESS;
+// const WETH_ADDRESS = import.meta.env.VITE_WETH_ADDRESS;
+// const USDT_ADDRESS = import.meta.env.VITE_USDT_ADDRESS;
 
 // Add these types at the top of the file
 interface TradingSession {
@@ -392,7 +395,7 @@ interface ArbitrageStrategyConfig {
   liquidityThreshold: number;
 }
 
-export function AIStrategyPanel() {
+export function AIStrategyPanel({ disableAiTrading = false }: { disableAiTrading?: boolean }) {
   const { toast } = useToast();
   const { isConnected, address, connect, currentNetwork } = useWallet();
   const queryClient = useQueryClient();
@@ -445,6 +448,145 @@ export function AIStrategyPanel() {
   });
   const [showArbitrageStrategyModal, setShowArbitrageStrategyModal] = useState(false);
   const [arbitrageStrategyConfig, setArbitrageStrategyConfig] = useState<ArbitrageStrategyConfig | null>(null);
+
+  // Add new state for AI trading service
+  const [aiTradingLogs, setAiTradingLogs] = useState<string[]>([]);
+  const [isAiTrading, setIsAiTrading] = useState(false);
+  const [aiConfidenceThreshold, setAiConfidenceThreshold] = useState(50); // 50%
+  const [aiTradeAmount, setAiTradeAmount] = useState(1); // 1 USDC default
+  const logsIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Initialize and clean up the logs interval
+  useEffect(() => {
+    if (isAiTrading) {
+      // Update logs every 5 seconds
+      logsIntervalRef.current = setInterval(() => {
+        setAiTradingLogs(aiTradingService.getLogs());
+      }, 5000);
+
+      // Initial logs fetch
+      setAiTradingLogs(aiTradingService.getLogs());
+    } else {
+      if (logsIntervalRef.current) {
+        clearInterval(logsIntervalRef.current);
+        logsIntervalRef.current = null;
+      }
+    }
+
+    return () => {
+      if (logsIntervalRef.current) {
+        clearInterval(logsIntervalRef.current);
+      }
+    };
+  }, [isAiTrading]);
+
+  // Helper function to show toast messages
+  const showToast = (message: string, variant: "default" | "destructive" = "default") => {
+    toast({
+      title: variant === "destructive" ? "Error" : "Success",
+      description: message,
+      variant
+    });
+  };
+
+  // Get AI wallet private key
+  const getAiWalletPrivateKey = async (): Promise<string | null> => {
+    try {
+      // Get AI wallet for current user
+      if (!address) {
+        showToast('Please connect your wallet first', "destructive");
+        return null;
+      }
+
+      // Request AI wallet private key from backend
+      const response = await apiRequest<{ privateKey: string }>('/api/ai-wallet/key', {
+        method: 'POST',
+        body: { userAddress: address }
+      });
+
+      if (!response?.privateKey) {
+        throw new Error('Failed to get AI wallet private key');
+      }
+
+      return response.privateKey;
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      showToast(`Error getting AI wallet: ${errorMessage}`, "destructive");
+      return null;
+    }
+  };
+
+  // Start AI trading
+  const startAiTrading = async () => {
+    try {
+      if (isAiTrading) {
+        showToast('AI trading is already running');
+        return;
+      }
+
+      if (!isConnected) {
+        await connectWallet(false);
+      }
+
+      // Validate inputs
+      if (aiTradeAmount <= 0) {
+        showToast('Trade amount must be greater than 0', "destructive");
+        return;
+      }
+
+      // Get AI wallet private key
+      const privateKey = await getAiWalletPrivateKey();
+      if (!privateKey) {
+        return;
+      }
+
+      addLog('Starting on-chain AI trading...', 'info');
+
+      // Start trading with the configured settings
+      const success = await aiTradingService.startTrading(
+        privateKey,
+        aiConfidenceThreshold / 100, // Convert from percentage to decimal
+        aiTradeAmount
+      );
+
+      if (success) {
+        setIsAiTrading(true);
+        showToast('AI trading started successfully');
+        addLog('AI trading started successfully', 'success');
+      } else {
+        showToast('Failed to start AI trading', "destructive");
+        addLog('Failed to start AI trading', 'error');
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      showToast(`Error starting AI trading: ${errorMessage}`, "destructive");
+      addLog(`Error starting AI trading: ${errorMessage}`, 'error');
+    }
+  };
+
+  // Stop AI trading
+  const stopAiTrading = () => {
+    try {
+      if (!isAiTrading) {
+        return;
+      }
+
+      const success = aiTradingService.stopTrading();
+
+      if (success) {
+        setIsAiTrading(false);
+        showToast('AI trading stopped successfully');
+        addLog('AI trading stopped successfully', 'info');
+      } else {
+        showToast('Failed to stop AI trading', "destructive");
+        addLog('Failed to stop AI trading', 'error');
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      showToast(`Error stopping AI trading: ${errorMessage}`, "destructive");
+      addLog(`Error stopping AI trading: ${errorMessage}`, 'error');
+    }
+  };
 
   // Query for strategies
   const { data: strategiesData } = useQuery({
@@ -702,7 +844,9 @@ export function AIStrategyPanel() {
         ];
 
         // Use the correct USDC address for the current network
-        const testnetUsdcAddress = USDC_ADDRESS;
+        const testnetUsdcAddress = currentNetwork && currentNetwork.chainIdNumber
+          ? getContractsForChain(currentNetwork.chainIdNumber).USDC
+          : '';
 
         // Create USDC contract instance
         const usdcContract = new ethers.Contract(testnetUsdcAddress, erc20Abi, signer);
@@ -838,7 +982,7 @@ export function AIStrategyPanel() {
       }
 
       // Log what we're doing
-      addLog(`${enabled ? "Starting" : "Stopping"} automated trading for wallet ${selectedAIWallet.slice(0, 6)}...`, "info");
+      addLog(`${enabled ? "Starting" : "Stopping"} automated trading for wallet ${selectedAIWallet ? selectedAIWallet.slice(0, 6) + '...' : 'Unknown'}...`, "info");
 
       // Get the current session ID or create a new one
       let sessionId = currentSessionId;
@@ -929,11 +1073,11 @@ export function AIStrategyPanel() {
     }
   };
 
-  const renderTradingLogs = () => {
+  const renderActivityLogs = () => {
     return (
       <div className="space-y-4 border-t pt-4">
         <div className="flex justify-between items-center">
-          <h3 className="font-semibold">Trading Logs</h3>
+          <h3 className="font-semibold">Activity Logs</h3>
           <Button size="sm" variant="outline" onClick={clearLogs}>Clear</Button>
         </div>
         <div className="max-h-40 overflow-y-auto bg-muted rounded-md p-2">
@@ -1038,13 +1182,6 @@ export function AIStrategyPanel() {
     queryKey: ['tokens'],
     queryFn: () => apiRequest<Token[]>('/api/tokens')
   });
-
-  const showToast = (description: string, variant: 'default' | 'destructive' = 'default') => {
-    toast({
-      description,
-      variant
-    });
-  };
 
   const handleError = (error: unknown) => {
     setIsError(true);
@@ -1281,11 +1418,29 @@ export function AIStrategyPanel() {
                 <div className="space-y-1 text-sm">
                   <div className="flex justify-between">
                     <span>Router:</span>
-                    <span className="font-mono text-xs">{import.meta.env.VITE_UNISWAP_ROUTER_ADDRESS.slice(0, 6)}...{import.meta.env.VITE_UNISWAP_ROUTER_ADDRESS.slice(-4)}</span>
+                    <span className="font-mono text-xs">
+                      {currentNetwork && currentNetwork.chainIdNumber ?
+                        (() => {
+                          const contracts = getContractsForChain(currentNetwork.chainIdNumber);
+                          return contracts.UNISWAP_ROUTER ?
+                            `${contracts.UNISWAP_ROUTER.slice(0, 6)}...${contracts.UNISWAP_ROUTER.slice(-4)}` :
+                            'Not configured';
+                        })() :
+                        'Not configured'}
+                    </span>
                   </div>
                   <div className="flex justify-between">
                     <span>Factory:</span>
-                    <span className="font-mono text-xs">{import.meta.env.VITE_UNISWAP_FACTORY_ADDRESS.slice(0, 6)}...{import.meta.env.VITE_UNISWAP_FACTORY_ADDRESS.slice(-4)}</span>
+                    <span className="font-mono text-xs">
+                      {currentNetwork && currentNetwork.chainIdNumber ?
+                        (() => {
+                          const contracts = getContractsForChain(currentNetwork.chainIdNumber);
+                          return contracts.UNISWAP_FACTORY ?
+                            `${contracts.UNISWAP_FACTORY.slice(0, 6)}...${contracts.UNISWAP_FACTORY.slice(-4)}` :
+                            'Not configured';
+                        })() :
+                        'Not configured'}
+                    </span>
                   </div>
                   <div className="flex justify-between">
                     <span>Chain ID:</span>
@@ -1457,30 +1612,14 @@ export function AIStrategyPanel() {
                 </div>
 
                 {/* Only enable button if a strategy is selected */}
-                {(() => {
-                  // Check if any strategy is enabled or if meme strategy is enabled
-                  const hasEnabledStrategy = strategies.some(s => s.enabled) || isMemeStrategyEnabled;
-
-                  // Determine if button should be in "ready" state with glow effect
-                  const isReadyToTrade = hasEnabledStrategy && !isAutoTrading;
-
-                  return (
-                    <Button
-                      variant="default"
-                      onClick={() => toggleAutoTrading(!isAutoTrading)}
-                      className={`
-                        ${isAutoTrading ? "bg-red-600 hover:bg-red-700 text-white" : "bg-yellow-500 hover:bg-yellow-600 text-white"}
-                        ${isReadyToTrade ? "animate-pulse shadow-md" : ""}
-                      `}
-                      disabled={!hasEnabledStrategy}
-                    >
-                      {isAutoTrading ? "Stop Trading" : "Start Trading"}
-                      {!hasEnabledStrategy && !isAutoTrading && (
-                        <span className="ml-2 text-xs">(Select a strategy first)</span>
-                      )}
-                    </Button>
-                  );
-                })()}
+                <Button
+                  variant={isAutoTrading ? "destructive" : "default"}
+                  size="sm"
+                  onClick={() => toggleAutoTrading(!isAutoTrading)}
+                  disabled={!strategies.some(s => s.enabled)}
+                >
+                  {isAutoTrading ? "Stop Trading" : "Start Trading"}
+                </Button>
               </div>
             </div>
           )}
@@ -1584,13 +1723,13 @@ export function AIStrategyPanel() {
           )}
 
           {/* Trading Logs - Only shown when trading is active */}
-          {isAutoTrading && renderTradingLogs()}
+          {isAutoTrading && renderActivityLogs()}
 
           {/* AI Recommendation Analyst - Only shown when trading is active and there are trades */}
           {isAutoTrading && trades && (
             <AIRecommendationAnalyst
               trades={trades}
-              isVisible={isAutoTrading && trades.length > 0}
+              isVisible={isAutoTrading && trades && trades.length > 0}
               activeStrategy={strategies.find(s => s.enabled)}
             />
           )}
@@ -1618,61 +1757,6 @@ export function AIStrategyPanel() {
                   ))}
                 </div>
               </div>
-            </div>
-          )}
-
-          {/* Past Trades - Only shown when there are trades */}
-          {trades && trades.length > 0 && (
-            <div className="space-y-4 border-t pt-4">
-              <h3 className="font-semibold">Past Trades</h3>
-              <div className="rounded-md border overflow-hidden">
-                <table className="w-full text-sm">
-                  <thead className="bg-muted">
-                    <tr>
-                      <th className="px-4 py-2 text-left">Date</th>
-                      <th className="px-4 py-2 text-left">Pair</th>
-                      <th className="px-4 py-2 text-left">Type</th>
-                      <th className="px-4 py-2 text-right">Amount</th>
-                      <th className="px-4 py-2 text-right">Price</th>
-                      <th className="px-4 py-2 text-right">P/L</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {trades.slice(0, 5).map((trade, i) => {
-                      const isBuy = trade.tokenAId === 1; // Assuming tokenId 1 is USDC
-                      const profitLoss = isBuy
-                        ? ((Number(trade.amountB) / Number(trade.amountA)) - 1) * 100
-                        : ((Number(trade.amountA) / Number(trade.amountB)) - 1) * 100;
-
-                      return (
-                        <tr key={i} className="border-t border-border">
-                          <td className="px-4 py-2">{new Date(trade.createdAt || Date.now()).toLocaleDateString()}</td>
-                          <td className="px-4 py-2">{isBuy ? 'USDC/WBTC' : 'WBTC/USDC'}</td>
-                          <td className="px-4 py-2">{isBuy ? 'BUY' : 'SELL'}</td>
-                          <td className="px-4 py-2 text-right">{Number(isBuy ? trade.amountA : trade.amountB).toFixed(2)}</td>
-                          <td className="px-4 py-2 text-right">${Number(isBuy ? trade.amountB : trade.amountA).toFixed(2)}</td>
-                          <td className={`px-4 py-2 text-right ${profitLoss >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                            {profitLoss.toFixed(2)}%
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-                {trades.length > 5 && (
-                  <div className="px-4 py-2 text-center text-sm text-muted-foreground bg-muted/50">
-                    + {trades.length - 5} more trades
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Performance Chart - Only shown when trading is active and there are trades */}
-          {isAutoTrading && trades && trades.length > 0 && (
-            <div className="space-y-4 border-t pt-4">
-              <h3 className="font-semibold">Performance</h3>
-              <PerformanceChart trades={trades} />
             </div>
           )}
 

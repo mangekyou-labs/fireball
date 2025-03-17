@@ -10,6 +10,30 @@ This is a [Next.js](https://nextjs.org) project that implements an AI-powered ag
 - WETH wrapping and unwrapping
 - Price quotes and fee estimation for trades
 - Support for multiple EVM networks
+- AI-powered on-chain trading for WETH/USDC with confidence-based execution
+
+## AI Trading Feature
+
+The agent includes an AI-powered trading feature that can:
+
+- Automatically monitor WETH/USDC price in real-time from Uniswap pools
+- Execute trades when AI confidence exceeds a configurable threshold (default 50%)
+- Trade a fixed amount of USDC for WETH (configurable) when buy signals are detected
+- Sell WETH for profit when sell signals are detected
+- Securely use your AI wallet's private key (managed on the server) to execute on-chain transactions
+- Apply technical analysis including RSI, moving averages, and price momentum
+- Display real-time trading logs and performance metrics
+
+To use this feature:
+1. Navigate to the "AI Trading" tab on the dashboard
+2. Make sure you have an AI wallet set up (if not, you'll be prompted to create one)
+3. Set your desired confidence threshold (30-90%) and USDC amount per trade
+4. Click "Start Trading" to begin automated trading
+
+The system securely manages your AI wallet private keys on the server, so you never need to manually enter or manage private keys. The security architecture ensures that your private keys are:
+- Encrypted and stored securely on the server database
+- Never exposed in the browser or client-side JavaScript
+- Used only for authorized trading operations
 
 ## API Endpoints
 

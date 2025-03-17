@@ -47,7 +47,7 @@ export function AIRecommendationAnalyst({ trades, isVisible, activeStrategy }: A
     try {
       // Extract token symbols from pair (e.g., "USDC/USDT" -> ["USDC", "USDT"])
       const [tokenA, tokenB] = pair.split('/');
-      
+
       // Get price data from the API
       const response = await apiRequest<{
         currentPrice: number;
@@ -58,7 +58,7 @@ export function AIRecommendationAnalyst({ trades, isVisible, activeStrategy }: A
         method: 'GET',
         params: { tokenA, tokenB }
       });
-      
+
       return response;
     } catch (error) {
       console.error('Error fetching price data:', error);
@@ -68,16 +68,16 @@ export function AIRecommendationAnalyst({ trades, isVisible, activeStrategy }: A
 
   // Function to analyze trades using Perplexity AI
   const analyzeTradesWithAI = async (
-    pair: string, 
-    currentPrice: number, 
-    priceHistory: number[], 
-    volume: number, 
+    pair: string,
+    currentPrice: number,
+    priceHistory: number[],
+    volume: number,
     rsi: number
   ) => {
     try {
       setLoading(true);
       setError(null);
-      
+
       // Call the server-side Perplexity AI analysis endpoint
       const result = await apiRequest<AnalysisResult>('/api/ai/analyze', {
         method: 'POST',
@@ -90,7 +90,7 @@ export function AIRecommendationAnalyst({ trades, isVisible, activeStrategy }: A
           strategyType: activeStrategy?.type || 'general'
         }
       });
-      
+
       setAnalysis(result);
       return result;
     } catch (error) {
@@ -120,7 +120,7 @@ export function AIRecommendationAnalyst({ trades, isVisible, activeStrategy }: A
           setError('Failed to fetch and analyze data. Please try again later.');
         }
       };
-      
+
       fetchAndAnalyze();
     }
   }, [isVisible, trades.length, selectedPair, activeStrategy]);
@@ -136,10 +136,11 @@ export function AIRecommendationAnalyst({ trades, isVisible, activeStrategy }: A
           <Brain className="mr-2 h-5 w-5 text-primary" />
           <h3 className="font-semibold">AI Recommendation Analyst</h3>
         </div>
-        <Tabs defaultValue={selectedPair} onValueChange={setSelectedPair} className="w-[200px]">
-          <TabsList className="grid grid-cols-2">
+        <Tabs defaultValue={selectedPair} onValueChange={setSelectedPair} className="w-[300px]">
+          <TabsList className="grid grid-cols-3">
             <TabsTrigger value="USDC/USDT">USDC/USDT</TabsTrigger>
             <TabsTrigger value="USDC/WBTC">USDC/WBTC</TabsTrigger>
+            <TabsTrigger value="USDC/WETH">USDC/WETH</TabsTrigger>
           </TabsList>
         </Tabs>
       </div>
@@ -163,11 +164,11 @@ export function AIRecommendationAnalyst({ trades, isVisible, activeStrategy }: A
           ) : analysis ? (
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <Badge 
+                <Badge
                   variant={
-                    analysis.action === "BUY" ? "default" : 
-                    analysis.action === "SELL" ? "destructive" : 
-                    "outline"
+                    analysis.action === "BUY" ? "default" :
+                      analysis.action === "SELL" ? "destructive" :
+                        "outline"
                   }
                   className="text-xs"
                 >
@@ -179,9 +180,9 @@ export function AIRecommendationAnalyst({ trades, isVisible, activeStrategy }: A
                   Confidence: {Math.round(analysis.confidence * 100)}%
                 </span>
               </div>
-              
+
               <p className="text-sm">{analysis.recommendation}</p>
-              
+
               <div className="space-y-1 mt-2">
                 <h4 className="text-xs font-medium text-muted-foreground">Reasoning:</h4>
                 <ul className="text-xs space-y-1">
@@ -193,7 +194,7 @@ export function AIRecommendationAnalyst({ trades, isVisible, activeStrategy }: A
                   ))}
                 </ul>
               </div>
-              
+
               {/* Strategy-specific insights if available */}
               {activeStrategy && analysis.strategySpecificInsights && analysis.strategySpecificInsights[activeStrategy.type] && (
                 <div className="border-t pt-2 mt-2">
@@ -202,11 +203,11 @@ export function AIRecommendationAnalyst({ trades, isVisible, activeStrategy }: A
                     {analysis.strategySpecificInsights[activeStrategy.type].recommendation}
                   </p>
                   <div className="mt-1">
-                    <Badge 
+                    <Badge
                       variant={
-                        analysis.strategySpecificInsights[activeStrategy.type].action === "BUY" ? "default" : 
-                        analysis.strategySpecificInsights[activeStrategy.type].action === "SELL" ? "destructive" : 
-                        "outline"
+                        analysis.strategySpecificInsights[activeStrategy.type].action === "BUY" ? "default" :
+                          analysis.strategySpecificInsights[activeStrategy.type].action === "SELL" ? "destructive" :
+                            "outline"
                       }
                       className="text-xs"
                     >
@@ -218,7 +219,7 @@ export function AIRecommendationAnalyst({ trades, isVisible, activeStrategy }: A
                   </div>
                 </div>
               )}
-              
+
               {/* Pair-specific insights if available */}
               {analysis.pairSpecificInsights && analysis.pairSpecificInsights[selectedPair] && (
                 <div className="border-t pt-2 mt-2">

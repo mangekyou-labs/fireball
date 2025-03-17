@@ -1,5 +1,5 @@
 import { ethers } from 'ethers';
-import { getPrice, runSwap, WETH, WBTC, USDC, USDT, getRouterContract } from './uniswap/AlphaRouterService';
+import { getPrice, runSwap, WETH, WBTC, USDC, USDT, getRouterContract, createTokens, updateCurrentNetwork } from './uniswap/AlphaRouterService';
 import { apiRequest } from "./api";
 import type { Token as SDKToken } from "@uniswap/sdk-core";
 import { CHAIN_IDS, getContractsForChain } from '@/lib/constants';
@@ -125,23 +125,51 @@ export class Web3Service {
       }
 
       if (!window.ethereum) {
-        throw new Error("MetaMask not found");
+        console.error("MetaMask not found. Please install MetaMask extension.");
+        throw new Error("MetaMask not found. Please install MetaMask extension.");
       }
 
-      // Request account access
-      await window.ethereum.request({ method: 'eth_requestAccounts' });
+      console.log("Requesting wallet connection...");
 
+      try {
+        // Request account access with more detailed error handling
+        await window.ethereum.request({
+          method: 'eth_requestAccounts',
+          params: []
+        }).catch((error: any) => {
+          console.error("User denied account access:", error);
+          throw new Error("Wallet connection denied. Please approve the connection request in MetaMask.");
+        });
+      } catch (requestError) {
+        console.error("Error during eth_requestAccounts:", requestError);
+        throw requestError;
+      }
+
+      // Re-create provider after successful connection
       this.provider = new ethers.providers.Web3Provider(window.ethereum);
-      this.signer = this.provider.getSigner();
+
+      // Try getting the signer with error handling
+      try {
+        this.signer = this.provider.getSigner();
+        // Verify signer by getting address (this will fail if signer is invalid)
+        await this.signer.getAddress();
+      } catch (signerError) {
+        console.error("Error getting signer:", signerError);
+        throw new Error("Failed to get a valid signer from your wallet. Please reconnect.");
+      }
 
       // Get the current chain ID and update
+      console.log("Getting network information...");
       const network = await this.provider.getNetwork();
       this.updateChain(network.chainId);
+      console.log(`Successfully connected to network: ${network.name} (${network.chainId})`);
 
       return true;
     } catch (error) {
       console.error("Failed to connect to wallet:", error);
-      return false;
+      this.provider = null;
+      this.signer = null;
+      throw error; // Re-throw to allow callers to handle specific errors
     }
   }
 
@@ -1030,6 +1058,11 @@ export class Web3Service {
   updateNetwork(chainId: number): void {
     this.currentChainId = chainId;
     this.currentContracts = getContractsForChain(chainId);
+
+    // Update token references in AlphaRouterService
+    updateCurrentNetwork(chainId);
+    createTokens();
+
     console.log(`Web3Service: Switched to chain ID ${chainId}`);
     console.log(`Web3Service: Using WETH address ${this.currentContracts.WETH}`);
     console.log(`Web3Service: Using USDC address ${this.currentContracts.USDC}`);
