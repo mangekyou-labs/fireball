@@ -5,24 +5,27 @@ import { getPool, getPrice, runSwap, USDC, WETH } from '@/lib/uniswap/AlphaRoute
 import { web3Service } from '@/lib/web3Service';
 import { getContractsForChain } from '@/lib/constants';
 
-interface TradingDecision {
+export interface TradingDecision {
     action: "BUY" | "SELL" | "HOLD";
     confidence: number;
     amount: number;
     reasoning: string[];
-    tokenPair: string;
     suggestedSlippage: number;
 }
 
 export class AiTradingService {
-    private isTrading = false;
-    private tradingInterval: NodeJS.Timeout | null = null;
-    private lastTradeTimestamp = 0;
-    private minTradeIntervalMs = 5 * 60 * 1000; // 5 minutes between trades
-    private confidenceThreshold = 0.5; // 50% confidence threshold
-    private tradeAmount = 1; // 1 USDC per trade
-    private aiWalletPrivateKey: string | null = null;
+    private aiWalletId?: string;
+    private aiWalletPrivateKey?: string;
+    private tradeAmount: number = 1; // Default to 1 USDC per trade
+    private confidenceThreshold: number = 0.5; // Default to 50% confidence threshold
     private logs: string[] = [];
+    private tradingInterval: NodeJS.Timeout | null = null;
+    private lastTradeTimestamp: number = 0;
+    private isRunning: boolean = false;
+    private aiWalletUsdcBalance: number = 0;
+    private aiWalletEthBalance: number = 0;
+    private recentTrades: Array<{ timestamp: number, action: string, amount: number, price: number }> = [];
+    private minTradeIntervalMs: number = 5 * 60 * 1000; // 5 minutes between trades
 
     constructor() {
         this.logs.push("AI Trading Service initialized");
@@ -46,7 +49,7 @@ export class AiTradingService {
                 return false;
             }
 
-            if (this.isTrading) {
+            if (this.isRunning) {
                 this.logs.push("Trading already running");
                 return false;
             }
@@ -84,7 +87,7 @@ export class AiTradingService {
             this.aiWalletPrivateKey = aiWalletPrivateKey;
             this.confidenceThreshold = confidenceThreshold;
             this.tradeAmount = tradeAmount;
-            this.isTrading = true;
+            this.isRunning = true;
 
             // Set up trading interval (every 2 minutes)
             if (this.tradingInterval) {
@@ -112,7 +115,7 @@ export class AiTradingService {
      * Stop automated trading
      */
     stopTrading(): boolean {
-        if (!this.isTrading) {
+        if (!this.isRunning) {
             return false;
         }
 
@@ -121,7 +124,7 @@ export class AiTradingService {
             this.tradingInterval = null;
         }
 
-        this.isTrading = false;
+        this.isRunning = false;
         this.logs.push("AI trading stopped");
         return true;
     }
@@ -130,7 +133,7 @@ export class AiTradingService {
      * Check if trading is currently active
      */
     isTradingActive(): boolean {
-        return this.isTrading;
+        return this.isRunning;
     }
 
     /**
@@ -220,7 +223,7 @@ export class AiTradingService {
      */
     private async executeTradeIteration(): Promise<void> {
         try {
-            if (!this.isTrading || !this.aiWalletPrivateKey) {
+            if (!this.isRunning || !this.aiWalletPrivateKey) {
                 return;
             }
 
@@ -418,36 +421,67 @@ export class AiTradingService {
 
                                     this.logs.push(`✅ Successfully obtained REAL on-chain price: ${currentPrice}`);
 
+                                    // If price is too close to zero or undefined, use a fallback price for sanity
+                                    if (!currentPrice || currentPrice < 0.01) {
+                                        this.logs.push(`⚠️ Price calculation error: Got ${currentPrice}, using fallback price of 1850 USDC per ETH`);
+                                        currentPrice = 1850; // Emergency fallback to a known reasonable price
+                                    } else {
+                                        // Display the actual price in a clear, unambiguous format
+                                        if (currentPrice > 1000) {
+                                            // Likely USDC per ETH format
+                                            this.logs.push(`✅ Current price: ${currentPrice.toFixed(2)} USDC per ETH`);
+                                        } else if (currentPrice < 0.001) {
+                                            // Likely ETH per USDC format, super small number
+                                            this.logs.push(`✅ Current price: ${(1 / currentPrice).toFixed(2)} USDC per ETH (inverted from ${currentPrice.toExponential(4)} ETH per USDC)`);
+                                        } else {
+                                            // Not sure which format, show both possibilities
+                                            this.logs.push(`✅ Current price: either ${currentPrice.toFixed(4)} or ${(1 / currentPrice).toFixed(2)} USDC per ETH`);
+                                        }
+                                    }
+
                                     // Get price history (mock implementation - in production would use on-chain data or API)
                                     const priceHistory = await this.fetchPriceHistory();
 
-                                    // Use the REAL price data for decision making!
-                                    const decision = await this.makeAiTradingDecision(currentPrice, priceHistory, null);
-                                    this.logs.push(`AI decision (REAL on-chain price): ${decision.action} with ${(decision.confidence * 100).toFixed(2)}% confidence`);
+                                    // Use the REAL price data for decision making via LLM API
+                                    this.logs.push(`Calling AI Recommendation Analyst via API with real market data...`);
+                                    try {
+                                        const decision = await this.makeAiTradingDecision(currentPrice, priceHistory, null);
+                                        this.logs.push(`🤖 AI ANALYST RECOMMENDATION: ${decision.action} with ${(decision.confidence * 100).toFixed(2)}% confidence`);
+                                        this.logs.push(`REASONING FROM LLM ANALYSIS:`);
+                                        // Log reasoning
+                                        decision.reasoning.forEach(reason => {
+                                            this.logs.push(`- ${reason}`);
+                                        });
 
-                                    // Log reasoning
-                                    decision.reasoning.forEach(reason => {
-                                        this.logs.push(`- ${reason}`);
-                                    });
+                                        // Execute trade if confidence exceeds threshold
+                                        if (decision.confidence > this.confidenceThreshold && decision.action !== "HOLD") {
+                                            this.logs.push(`Confidence threshold met (${(decision.confidence * 100).toFixed(2)}% > ${(this.confidenceThreshold * 100).toFixed(2)}%), preparing to execute trade...`);
 
-                                    // Execute trade if confidence exceeds threshold
-                                    if (decision.confidence > this.confidenceThreshold && decision.action !== "HOLD") {
-                                        this.logs.push(`Confidence threshold met (${(decision.confidence * 100).toFixed(2)}% > ${(this.confidenceThreshold * 100).toFixed(2)}%), preparing to execute trade...`);
+                                            try {
+                                                this.logs.push("Attempting trade execution based on AI analyst recommendation...");
+                                                const tradeResult = await this.executeTrade(decision);
+                                                if (tradeResult) {
+                                                    this.logs.push("✅ Trade executed successfully ON-CHAIN!");
+                                                    this.lastTradeTimestamp = Date.now();
 
-                                        try {
-                                            this.logs.push("Attempting trade execution with REAL price data...");
-                                            const tradeResult = await this.executeTrade(decision);
-                                            if (tradeResult) {
-                                                this.logs.push("✅ Trade executed successfully ON-CHAIN!");
-                                                this.lastTradeTimestamp = Date.now();
-                                            } else {
-                                                this.logs.push("❌ Trade execution failed");
+                                                    // Record the trade and update balances
+                                                    await this.afterTradeExecution(
+                                                        decision.action as "BUY" | "SELL",
+                                                        decision.amount,
+                                                        currentPrice
+                                                    );
+                                                } else {
+                                                    this.logs.push("❌ Trade execution failed");
+                                                }
+                                            } catch (tradeError) {
+                                                this.logs.push(`❌ Error executing trade: ${tradeError instanceof Error ? tradeError.message : String(tradeError)}`);
                                             }
-                                        } catch (tradeError) {
-                                            this.logs.push(`❌ Error executing trade: ${tradeError instanceof Error ? tradeError.message : String(tradeError)}`);
+                                        } else {
+                                            this.logs.push(`No trade executed: confidence (${(decision.confidence * 100).toFixed(2)}%) below threshold or action is HOLD`);
                                         }
-                                    } else {
-                                        this.logs.push(`No trade executed: confidence (${(decision.confidence * 100).toFixed(2)}%) below threshold or action is HOLD`);
+                                    } catch (apiError) {
+                                        this.logs.push(`❌ Error calling AI Analyst API: ${apiError instanceof Error ? apiError.message : String(apiError)}`);
+                                        this.logs.push(`Skipping trade decision due to API error`);
                                     }
 
                                     return;
@@ -463,16 +497,22 @@ export class AiTradingService {
                                 const simulatedPrice = 1800; // Estimated ETH price
                                 const priceHistory = await this.fetchPriceHistory();
 
-                                // Make trading decision with simulated price
-                                const decision = await this.makeAiTradingDecision(simulatedPrice, priceHistory, null);
-                                this.logs.push(`AI decision (EMERGENCY FALLBACK - PRICE SIMULATION): ${decision.action} with ${(decision.confidence * 100).toFixed(2)}% confidence`);
+                                // Make trading decision with simulated price via LLM API
+                                this.logs.push(`Calling AI Recommendation Analyst API with simulated price data...`);
+                                try {
+                                    const decision = await this.makeAiTradingDecision(simulatedPrice, priceHistory, null);
+                                    this.logs.push(`🤖 AI ANALYST RECOMMENDATION (EMERGENCY FALLBACK): ${decision.action} with ${(decision.confidence * 100).toFixed(2)}% confidence`);
 
-                                // Log reasoning
-                                decision.reasoning.forEach(reason => {
-                                    this.logs.push(`- ${reason}`);
-                                });
+                                    // Log reasoning
+                                    this.logs.push(`REASONING FROM LLM ANALYSIS:`);
+                                    decision.reasoning.forEach(reason => {
+                                        this.logs.push(`- ${reason}`);
+                                    });
 
-                                this.logs.push("Skipping trade execution due to pool data issues");
+                                    this.logs.push("Skipping trade execution due to pool data issues");
+                                } catch (apiError) {
+                                    this.logs.push(`❌ Error calling AI Analyst API: ${apiError instanceof Error ? apiError.message : String(apiError)}`);
+                                }
                                 return;
                             } else {
                                 this.logs.push(`Pool not found for USDC/WETH with fee 0.05%. The pool may not be created yet.`);
@@ -756,107 +796,138 @@ export class AiTradingService {
         pool: Pool | null
     ): Promise<TradingDecision> {
         try {
-            // Calculate price momentum
-            const prices = [...priceHistory, currentPrice];
-            const shortTermAvg = this.calculateSMA(prices.slice(-5));
-            const longTermAvg = this.calculateSMA(prices.slice(-20));
+            // Get market data for the LLM
+            const priceChange24h = this.calculatePriceChange(currentPrice, priceHistory);
+            const rsi = this.calculateRSI(priceHistory, 14);
 
-            // Calculate RSI
-            const rsi = this.calculateRSI(prices, 14);
+            this.logs.push(`Requesting AI trading recommendation from LLM API...`);
 
-            // Default values
-            let action: "BUY" | "SELL" | "HOLD" = "HOLD";
-            let confidence = 0.3;
-            let amount = this.tradeAmount;
-            const reasoning: string[] = [];
-
-            // Check for oversold condition (RSI < 30)
-            if (rsi < 30) {
-                action = "BUY";
-                confidence += 0.3;
-                reasoning.push(`RSI is oversold at ${rsi.toFixed(2)}`);
-            }
-
-            // Check for overbought condition (RSI > 70)
-            if (rsi > 70) {
-                action = "SELL";
-                confidence += 0.3;
-                reasoning.push(`RSI is overbought at ${rsi.toFixed(2)}`);
-            }
-
-            // Check for golden cross (short term MA crosses above long term MA)
-            const prevShortTermAvg = this.calculateSMA(prices.slice(-6, -1));
-            const prevLongTermAvg = this.calculateSMA(prices.slice(-21, -1));
-
-            if (prevShortTermAvg <= prevLongTermAvg && shortTermAvg > longTermAvg) {
-                action = "BUY";
-                confidence += 0.2;
-                reasoning.push("Golden cross detected: short-term average crossed above long-term average");
-            }
-
-            // Check for death cross (short term MA crosses below long term MA)
-            if (prevShortTermAvg >= prevLongTermAvg && shortTermAvg < longTermAvg) {
-                action = "SELL";
-                confidence += 0.2;
-                reasoning.push("Death cross detected: short-term average crossed below long-term average");
-            }
-
-            // Price movement analysis
-            const priceChange24h = ((currentPrice - prices[prices.length - 25]) / prices[prices.length - 25]) * 100;
-
-            if (priceChange24h > 5) {
-                // Price increased more than 5% in 24h
-                action = "SELL";
-                confidence += 0.1;
-                reasoning.push(`Price increased by ${priceChange24h.toFixed(2)}% in 24h`);
-            } else if (priceChange24h < -5) {
-                // Price decreased more than 5% in 24h
-                action = "BUY";
-                confidence += 0.1;
-                reasoning.push(`Price decreased by ${Math.abs(priceChange24h).toFixed(2)}% in 24h`);
-            }
-
-            // Add general market information
-            reasoning.push(`Current price: ${currentPrice.toFixed(2)} USDC`);
-            reasoning.push(`RSI(14): ${rsi.toFixed(2)}`);
-
-            // Calculate appropriate trade amount based on portfolio value
-            // For demonstration, we'll use the fixed amount
-
-            // Check if we have conflicting signals, reduce confidence
-            if (reasoning.some(r => r.includes("oversold")) && reasoning.some(r => r.includes("death cross"))) {
-                confidence -= 0.2;
-                reasoning.push("Conflicting signals detected, reducing confidence");
-            }
-
-            // If no strong signals, default to HOLD
-            if (confidence < 0.4) {
-                action = "HOLD";
-                reasoning.push("No strong trading signals detected");
-            }
-
-            // Cap confidence between 0 and 1
-            confidence = Math.max(0, Math.min(1, confidence));
-
-            return {
-                action,
-                confidence,
-                amount,
-                reasoning,
-                tokenPair: "USDC/WETH",
-                suggestedSlippage: 1.0
+            // Prepare context data for the LLM
+            const contextData = {
+                currentPrice: currentPrice,
+                priceChange24h: priceChange24h,
+                rsi: rsi,
+                usdcBalance: this.aiWalletUsdcBalance,
+                ethBalance: this.aiWalletEthBalance,
+                tradeAmount: this.tradeAmount,
+                confidenceThreshold: this.confidenceThreshold,
+                recentTrades: this.recentTrades.slice(-5), // Last 5 trades
+                timestamp: new Date().toISOString(),
+                priceHistory: priceHistory.slice(-20), // Last 20 price points
             };
+
+            try {
+                // Call the backend API to get LLM-based trading decision
+                const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/ai/trading-decision`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(contextData),
+                });
+
+                if (!response.ok) {
+                    throw new Error(`API response error: ${response.status}`);
+                }
+
+                const llmDecision = await response.json();
+                this.logs.push(`✅ Received AI recommendation from analyst`);
+
+                // Validate and use the LLM response
+                if (llmDecision &&
+                    llmDecision.action &&
+                    ['BUY', 'SELL', 'HOLD'].includes(llmDecision.action) &&
+                    typeof llmDecision.confidence === 'number' &&
+                    Array.isArray(llmDecision.reasoning)) {
+
+                    this.logs.push(`AI analyst recommends: ${llmDecision.action} with ${(llmDecision.confidence * 100).toFixed(2)}% confidence`);
+                    return {
+                        action: llmDecision.action,
+                        amount: this.tradeAmount,
+                        confidence: llmDecision.confidence,
+                        reasoning: llmDecision.reasoning,
+                        suggestedSlippage: 0.005, // 0.5% slippage
+                    };
+                } else {
+                    throw new Error("Invalid LLM response format");
+                }
+            } catch (llmError) {
+                // If LLM API call fails, fall back to rule-based system
+                this.logs.push(`⚠️ LLM API call failed: ${llmError instanceof Error ? llmError.message : String(llmError)}`);
+                this.logs.push(`Falling back to rule-based decision making`);
+                return this.fallbackRuleBasedDecision(currentPrice, priceHistory, rsi, priceChange24h);
+            }
         } catch (error) {
-            console.error("Error in AI decision making:", error);
+            this.logs.push(`Error in AI decision making: ${error instanceof Error ? error.message : String(error)}`);
+
+            // Default to HOLD with low confidence if there's an error
             return {
                 action: "HOLD",
-                confidence: 0,
-                amount: 0,
-                reasoning: [`Error in AI decision making: ${error instanceof Error ? error.message : String(error)}`],
-                tokenPair: "USDC/WETH",
-                suggestedSlippage: 1.0
+                amount: this.tradeAmount,
+                confidence: 0.1,
+                reasoning: ["Error in decision making process, defaulting to HOLD"],
+                suggestedSlippage: 0.005
             };
         }
+    }
+
+    private fallbackRuleBasedDecision(
+        currentPrice: number,
+        priceHistory: number[],
+        rsi: number,
+        priceChange24h: number
+    ): TradingDecision {
+        // This is the old rule-based logic, now as a fallback
+        const reasoning: string[] = [];
+
+        // Add current price and RSI to reasoning
+        reasoning.push(`Current price: ${currentPrice.toFixed(2)} USDC`);
+        reasoning.push(`RSI(14): ${rsi.toFixed(2)}`);
+
+        let action: "BUY" | "SELL" | "HOLD" = "HOLD";
+        let confidence = 0.3; // Default confidence
+
+        // Determine action based on RSI
+        if (rsi < 30) {
+            action = "BUY";
+            confidence = 0.5 + (0.5 * (30 - rsi) / 30); // Higher confidence as RSI gets lower
+            reasoning.push(`RSI is oversold at ${rsi.toFixed(2)}`);
+        } else if (rsi > 70) {
+            action = "SELL";
+            confidence = 0.5 + (0.5 * (rsi - 70) / 30); // Higher confidence as RSI gets higher
+            reasoning.push(`RSI is overbought at ${rsi.toFixed(2)}`);
+        } else {
+            reasoning.push(`RSI is neutral at ${rsi.toFixed(2)}`);
+        }
+
+        // Consider price changes
+        if (priceChange24h < -5) {
+            reasoning.push(`Price decreased by ${Math.abs(priceChange24h).toFixed(2)}% in 24h`);
+            if (action === "BUY") {
+                confidence += 0.1; // Increase confidence for buy if price has dropped
+            }
+        } else if (priceChange24h > 5) {
+            reasoning.push(`Price increased by ${priceChange24h.toFixed(2)}% in 24h`);
+            if (action === "SELL") {
+                confidence += 0.1; // Increase confidence for sell if price has risen
+            }
+        }
+
+        // Cap confidence at 0.9
+        confidence = Math.min(confidence, 0.9);
+
+        if (confidence < 0.4) {
+            action = "HOLD";
+            reasoning.push("No strong trading signals detected");
+        }
+
+        return {
+            action,
+            amount: this.tradeAmount,
+            confidence,
+            reasoning,
+            suggestedSlippage: 0.005 // 0.5% slippage
+        };
     }
 
     /**
@@ -915,6 +986,70 @@ export class AiTradingService {
 
         const rs = avgGain / avgLoss;
         return 100 - (100 / (1 + rs));
+    }
+
+    private calculatePriceChange(currentPrice: number, priceHistory: number[]): number {
+        if (!priceHistory || priceHistory.length < 24) {
+            return 0; // Not enough history to calculate 24h change
+        }
+
+        // Get price from 24 periods ago (assuming each period is 1 hour or other consistent interval)
+        const previousPrice = priceHistory[priceHistory.length - 24];
+
+        if (previousPrice === 0) {
+            return 0; // Avoid division by zero
+        }
+
+        // Calculate percentage change
+        return ((currentPrice - previousPrice) / previousPrice) * 100;
+    }
+
+    // Add a method to update wallet balances
+    private async updateWalletBalances(): Promise<void> {
+        if (!this.aiWalletId) return;
+
+        try {
+            // Get USDC balance
+            if (this.aiWalletPrivateKey) {
+                const usdcBalance = await this.checkAiWalletUsdcBalance(this.aiWalletPrivateKey);
+                if (usdcBalance !== null) {
+                    this.aiWalletUsdcBalance = parseFloat(usdcBalance.toString());
+                }
+            }
+
+            // Get ETH balance
+            const ethBalance = await web3Service.getBalance(this.aiWalletId);
+            if (ethBalance !== null) {
+                // Convert BigNumber to number
+                this.aiWalletEthBalance = parseFloat(ethers.utils.formatEther(ethBalance));
+            }
+        } catch (error) {
+            console.error("Error updating wallet balances:", error);
+        }
+    }
+
+    // When a trade is executed, add it to recent trades
+    private recordTrade(action: "BUY" | "SELL", amount: number, price: number): void {
+        this.recentTrades.push({
+            timestamp: Date.now(),
+            action,
+            amount,
+            price
+        });
+
+        // Keep only the last 20 trades
+        if (this.recentTrades.length > 20) {
+            this.recentTrades = this.recentTrades.slice(-20);
+        }
+    }
+
+    // Call this after a successful trade
+    private async afterTradeExecution(action: "BUY" | "SELL", amount: number, price: number): Promise<void> {
+        // Record the trade
+        this.recordTrade(action, amount, price);
+
+        // Update balances
+        await this.updateWalletBalances();
     }
 }
 

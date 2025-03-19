@@ -5,6 +5,7 @@ import { insertTokenSchema, insertTradeSchema, insertStrategySchema } from "@sha
 import fetch from "node-fetch";
 import { ethers } from "ethers";
 import { runTradingIteration } from "./tradingLogic.js";
+import aiRoutes from "./routes/aiRoutes.js"; // Import aiRoutes
 
 // Perplexity API configuration
 const PERPLEXITY_API_URL = "https://api.perplexity.ai";
@@ -161,6 +162,9 @@ function cleanMarkdownCodeBlocks(content: string): string {
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  // Register AI routes
+  app.use("/api/ai", aiRoutes);
+
   // Token routes
   app.get("/api/tokens", async (_req, res) => {
     const tokens = await storage.getTokens();

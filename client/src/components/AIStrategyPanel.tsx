@@ -400,6 +400,9 @@ export function AIStrategyPanel({ disableAiTrading = false }: { disableAiTrading
   const { isConnected, address, connect, currentNetwork } = useWallet();
   const queryClient = useQueryClient();
   const [, setLocation] = useLocation();
+  const prevRiskLevelRef = useRef<string | null>(null);
+  // Add a ref to determine if we should log risk level changes
+  const shouldLogRiskChange = useRef(false);
 
   const [analysis, setAnalysis] = useState<{
     recommendation: string;
@@ -606,10 +609,48 @@ export function AIStrategyPanel({ disableAiTrading = false }: { disableAiTrading
   // Extract strategies array from the response
   const strategies = strategiesData?.strategies || [];
 
-  // Reset strategy enablement when risk level changes
+  // Memoize the addLog function to prevent it from causing re-renders
+  const memoizedAddLog = useCallback(async (message: string, type: 'info' | 'success' | 'error' = 'info') => {
+    // Add to local state
+    const newLog = {
+      message,
+      type,
+      timestamp: new Date().toLocaleTimeString()
+    };
+
+    setLogs(prev => [...prev, newLog]);
+
+    // Store in database if we have an active session
+    if (sessionId) {
+      try {
+        await apiRequest('/api/logs', {
+          method: 'POST',
+          body: {
+            sessionId,
+            activityType: type === 'error' ? 'ERROR' : type === 'success' ? 'SUCCESS' : 'INFO',
+            details: {
+              message,
+              timestamp: new Date().toISOString()
+            },
+            isManualIntervention: false
+          }
+        });
+      } catch (error) {
+        console.error('Error storing log in database:', error);
+      }
+    }
+  }, [sessionId]);
+
+  // Use memoized version in the useEffect for risk level changes
   useEffect(() => {
     // Debug log to see what's happening
     console.log("Risk level changed to:", riskLevel);
+
+    // Check if risk level actually changed (to avoid duplicate logs)
+    if (prevRiskLevelRef.current !== riskLevel) {
+      shouldLogRiskChange.current = true;
+      prevRiskLevelRef.current = riskLevel;
+    }
 
     // Create a safe reference to strategies
     const safeStrategies = strategies || [];
@@ -684,10 +725,21 @@ export function AIStrategyPanel({ disableAiTrading = false }: { disableAiTrading
       }
     }
 
-    // Log the risk level change
-    addLog(`Risk level changed to ${riskLevel}`, 'info');
+    // REMOVED: Don't log risk level change here to avoid infinite loop
   }, [riskLevel, strategies, isMemeStrategyEnabled, queryClient]);
 
+  // Add a separate effect to handle logging risk level changes
+  // This breaks the cycle of re-renders
+  useEffect(() => {
+    if (shouldLogRiskChange.current) {
+      // Reset the flag
+      shouldLogRiskChange.current = false;
+      // Log the change (using the original addLog to avoid dependency issues)
+      addLog(`Risk level changed to ${riskLevel}`, 'info');
+    }
+  }, [riskLevel]);
+
+  // Keep the original addLog function for other uses
   const addLog = async (message: string, type: 'info' | 'success' | 'error' = 'info') => {
     // Add to local state
     const newLog = {
