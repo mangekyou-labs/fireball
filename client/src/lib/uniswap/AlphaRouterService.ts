@@ -34,7 +34,10 @@ const POOL_FEE = 500; // 0.05%
 export const providers: { [key: number]: ethers.providers.JsonRpcProvider } = {
   [CHAIN_IDS.ABC_TESTNET]: new ethers.providers.JsonRpcProvider(import.meta.env.VITE_RPC_URL),
   [CHAIN_IDS.SONIC_BLAZE_TESTNET]: new ethers.providers.JsonRpcProvider(import.meta.env.VITE_SONIC_BLAZE_RPC_URL || 'https://rpc.blaze.soniclabs.com'),
-  [CHAIN_IDS.ESPRESSO_ROLLUP]: new ethers.providers.JsonRpcProvider('/espresso-rpc'),
+  [CHAIN_IDS.ESPRESSO_ROLLUP]: new ethers.providers.JsonRpcProvider(
+    // Use different endpoints for development vs production
+    import.meta.env.DEV ? '/espresso-rpc' : '/api/espresso-rpc'
+  ),
 };
 
 // Default provider and contracts
