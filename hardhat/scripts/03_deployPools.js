@@ -54,12 +54,17 @@ async function deployPool(token0, token1, fee, price) {
     token1,
     fee,
     price,
-    { gasLimit: 5000000 }
+    {
+      gasLimit: 500000000
+    }
   )
   const poolAddress = await factory.connect(owner).getPool(
     token0,
     token1,
     fee,
+    {
+      gasLimit: 500000000
+    }
   )
   return poolAddress
 }
@@ -70,12 +75,16 @@ async function main() {
   console.log(`Using TETHER address: ${TETHER_ADDRESS}`);
   console.log(`Using WETH address: ${WETH_ADDRESS}`);
 
-  console.log("Deploying USDC/USDT pool with 1:1 price ratio...");
-  const usdcUsdt500 = await deployPool(USDC_ADDRESS, TETHER_ADDRESS, 500, encodePriceSqrt(1, 1))
-  console.log(`USDC/USDT pool deployed at: ${usdcUsdt500}`);
+  // console.log("Deploying USDC/USDT pool with 1:1 price ratio...");
+  // const usdcUsdt500 = await deployPool(USDC_ADDRESS, TETHER_ADDRESS, 500, encodePriceSqrt(1, 1))
+  // console.log(`USDC/USDT pool deployed at: ${usdcUsdt500}`);
+
+  console.log("Deploying USDT/USDC pool with 1:1 price ratio...");
+  const usdtUsdc500 = await deployPool(TETHER_ADDRESS, USDC_ADDRESS, 500, encodePriceSqrt(1, 1))
+  console.log(`USDT/USDC pool deployed at: ${usdtUsdc500}`);
 
   let addresses = [
-    `USDC_USDT_500=${usdcUsdt500}`
+    `USDT_USDC_500=${usdtUsdc500}`
   ]
 
   // Uncomment to deploy WETH/USDC pool

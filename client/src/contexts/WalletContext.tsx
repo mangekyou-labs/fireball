@@ -62,6 +62,18 @@ export const NETWORKS: { [key: number]: NetworkConfig } = {
     },
     rpcUrls: [import.meta.env.VITE_SONIC_BLAZE_RPC_URL || 'https://rpc.blaze.soniclabs.com'],
     contracts: getContractsForChain(CHAIN_IDS.SONIC_BLAZE_TESTNET)
+  },
+  [CHAIN_IDS.ESPRESSO_ROLLUP]: {
+    chainIdNumber: CHAIN_IDS.ESPRESSO_ROLLUP,
+    chainId: `0x${Number(CHAIN_IDS.ESPRESSO_ROLLUP).toString(16)}`, // Convert to hex
+    chainName: 'Espresso Rollup Testnet',
+    nativeCurrency: {
+      name: 'ETH',
+      symbol: 'ETH',
+      decimals: 18
+    },
+    rpcUrls: [import.meta.env.VITE_ESPRESSO_ROLLUP_RPC_URL || 'http://13.239.65.206:8547'],
+    contracts: getContractsForChain(CHAIN_IDS.ESPRESSO_ROLLUP)
   }
 };
 

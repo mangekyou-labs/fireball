@@ -79,6 +79,13 @@ export default defineConfig(({ mode }) => {
           secure: false,
           rewrite: (path) => path.replace(/^\/api/, '')
         },
+        // Espresso Rollup RPC proxy to handle CORS issues
+        '/espresso-rpc': {
+          target: 'http://13.239.65.206:8547',
+          changeOrigin: true,
+          secure: false,
+          rewrite: (path) => path.replace(/^\/espresso-rpc/, '')
+        },
         // Special case for BITTE API chat endpoint
         '/api/chat': {
           target: bitteApiUrl,

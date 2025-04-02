@@ -3,7 +3,8 @@
 // Chain IDs
 export const CHAIN_IDS = {
     ABC_TESTNET: 112,
-    SONIC_BLAZE_TESTNET: 57054
+    SONIC_BLAZE_TESTNET: 57054,
+    ESPRESSO_ROLLUP: 42169
 };
 
 // Contract addresses for ABC Testnet (Chain ID 112)
@@ -38,10 +39,27 @@ export const SONIC_BLAZE_TESTNET_CONTRACTS = {
     }
 };
 
+// Contract addresses for Espresso Rollup Testnet (Chain ID 42169)
+export const ESPRESSO_ROLLUP_CONTRACTS = {
+    UNISWAP_ROUTER: "0xa32AAa0d768B19c9eEab9a7F0628242d5e8904DE", // Placeholder - update with actual address
+    UNISWAP_FACTORY: "0xdBa8cC72A2B59b7cF7e3AAA6Aef63a9417F8621f", // Placeholder - update with actual address
+    UNISWAP_POSITION_MANAGER: "0xd0978F9D86b0241a38151370cAaCDE36A6d1Ec0c", // Placeholder - update with actual address
+    WETH: "0x927787D631457EC7FB1fAa6bC4154F25c4d8BDE3", // Placeholder - update with actual address
+    WBTC: "0x28464058F4DF6B29abE12D12d070C681b99b0f0C", // Placeholder - update with actual address
+    USDT: "0x1D78adD7730eE6E4AC01e8635DbdFc944145C7C8", // Placeholder - update with actual address
+    USDC: "0x4d42E0D1434065342c781296A4748190bB73aea2", // Placeholder - update with actual address
+    TOKEN_FAUCET: "0x03aF81367021354831D388E5a2a71544Ab6297D0", // Placeholder - update with actual address
+    POOLS: {
+        WETH_USDC_500: "0x0000000000000000000000000000000000000000", // USDC/WETH pool with 0.05% fee
+        USDT_USDC_500: "0x8Aba5aa4079Eb5b1024cEd1F930466e6d8AA9df0"  // USDT/USDC pool with 0.05% fee
+    }
+};
+
 // Map chain IDs to their respective contract addresses
 export const NETWORK_CONTRACTS: { [chainId: number]: any } = {
     [CHAIN_IDS.ABC_TESTNET]: ABC_TESTNET_CONTRACTS,
-    [CHAIN_IDS.SONIC_BLAZE_TESTNET]: SONIC_BLAZE_TESTNET_CONTRACTS
+    [CHAIN_IDS.SONIC_BLAZE_TESTNET]: SONIC_BLAZE_TESTNET_CONTRACTS,
+    [CHAIN_IDS.ESPRESSO_ROLLUP]: ESPRESSO_ROLLUP_CONTRACTS
 };
 
 // Get contract addresses for a specific chain ID
