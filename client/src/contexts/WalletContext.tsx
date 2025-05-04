@@ -74,6 +74,18 @@ export const NETWORKS: { [key: number]: NetworkConfig } = {
     },
     rpcUrls: [import.meta.env.VITE_ESPRESSO_ROLLUP_RPC_URL || 'http://13.239.65.206:8547'],
     contracts: getContractsForChain(CHAIN_IDS.ESPRESSO_ROLLUP)
+  },
+  [CHAIN_IDS.IOTA_EVM_TESTNET]: {
+    chainIdNumber: CHAIN_IDS.IOTA_EVM_TESTNET,
+    chainId: `0x${Number(CHAIN_IDS.IOTA_EVM_TESTNET).toString(16)}`, // Convert to hex
+    chainName: 'IOTA EVM Testnet',
+    nativeCurrency: {
+      name: 'IOTA',
+      symbol: 'IOTA',
+      decimals: 18
+    },
+    rpcUrls: [import.meta.env.VITE_IOTA_EVM_TESTNET_RPC_URL || 'https://json-rpc.evm.testnet.iotaledger.net'],
+    contracts: getContractsForChain(CHAIN_IDS.IOTA_EVM_TESTNET)
   }
 };
 

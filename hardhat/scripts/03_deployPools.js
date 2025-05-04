@@ -89,10 +89,10 @@ async function main() {
 
   // Uncomment to deploy WETH/USDC pool
   console.log("Deploying WETH/USDC pool with 1:1807.364570842 (ticks 75000) price ratio...");
-  const wethUsdc500 = await deployPool(WETH_ADDRESS, USDC_ADDRESS, 500, encodePriceSqrt(1807.364570842, 1))
-  console.log(`WETH/USDC pool deployed at: ${wethUsdc500}`);
+  const usdcWeth500 = await deployPool(USDC_ADDRESS, WETH_ADDRESS, 500, encodePriceSqrt(1, 1807.364570842))
+  console.log(`USDC/WETH pool deployed at: ${usdcWeth500}`);
 
-  addresses.push(`WETH_USDC_500=${wethUsdc500}`)
+  addresses.push(`USDC_WETH_500=${usdcWeth500}`)
 
   // console.log("Deploying WBTC/USDC pool with 1:40000 price ratio...");
   // const wbtcUsdc1000 = await deployPool(WRAPPED_BITCOIN_ADDRESS, USDC_ADDRESS, 500, encodePriceSqrt(40000, 1))

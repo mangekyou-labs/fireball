@@ -4,7 +4,8 @@
 export const CHAIN_IDS = {
     ABC_TESTNET: 112,
     SONIC_BLAZE_TESTNET: 57054,
-    ESPRESSO_ROLLUP: 42169
+    ESPRESSO_ROLLUP: 42169,
+    IOTA_EVM_TESTNET: 1075
 };
 
 // Contract addresses for ABC Testnet (Chain ID 112)
@@ -50,8 +51,24 @@ export const ESPRESSO_ROLLUP_CONTRACTS = {
     USDC: "0x4d42E0D1434065342c781296A4748190bB73aea2", // Placeholder - update with actual address
     TOKEN_FAUCET: "0x03aF81367021354831D388E5a2a71544Ab6297D0", // Placeholder - update with actual address
     POOLS: {
-        WETH_USDC_500: "0x0000000000000000000000000000000000000000", // USDC/WETH pool with 0.05% fee
+        USDC_WETH_500: "0x71667f4B02f435c5b6Fc9B757D1f7995F85A912c", // USDC/WETH pool with 0.05% fee
         USDT_USDC_500: "0x8Aba5aa4079Eb5b1024cEd1F930466e6d8AA9df0"  // USDT/USDC pool with 0.05% fee
+    }
+};
+
+// Contract addresses for IOTA EVM Testnet (Chain ID 1075)
+export const IOTA_EVM_TESTNET_CONTRACTS = {
+    UNISWAP_ROUTER: "0x0000000000000000000000000000000000000000", // Placeholder - update when deployed
+    UNISWAP_FACTORY: "0x0000000000000000000000000000000000000000", // Placeholder - update when deployed
+    UNISWAP_POSITION_MANAGER: "0x0000000000000000000000000000000000000000", // Placeholder - update when deployed
+    WETH: "0x0000000000000000000000000000000000000000", // Placeholder - update when deployed
+    WBTC: "0x0000000000000000000000000000000000000000", // Placeholder - update when deployed
+    USDT: "0x0000000000000000000000000000000000000000", // Placeholder - update when deployed
+    USDC: "0x0000000000000000000000000000000000000000", // Placeholder - update when deployed
+    TOKEN_FAUCET: "0x0000000000000000000000000000000000000000", // Placeholder - update when deployed
+    POOLS: {
+        WETH_USDC_500: "0x0000000000000000000000000000000000000000", // Placeholder - update when deployed
+        USDT_USDC_500: "0x0000000000000000000000000000000000000000"  // Placeholder - update when deployed
     }
 };
 
@@ -59,7 +76,8 @@ export const ESPRESSO_ROLLUP_CONTRACTS = {
 export const NETWORK_CONTRACTS: { [chainId: number]: any } = {
     [CHAIN_IDS.ABC_TESTNET]: ABC_TESTNET_CONTRACTS,
     [CHAIN_IDS.SONIC_BLAZE_TESTNET]: SONIC_BLAZE_TESTNET_CONTRACTS,
-    [CHAIN_IDS.ESPRESSO_ROLLUP]: ESPRESSO_ROLLUP_CONTRACTS
+    [CHAIN_IDS.ESPRESSO_ROLLUP]: ESPRESSO_ROLLUP_CONTRACTS,
+    [CHAIN_IDS.IOTA_EVM_TESTNET]: IOTA_EVM_TESTNET_CONTRACTS
 };
 
 // Get contract addresses for a specific chain ID

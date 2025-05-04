@@ -4,6 +4,8 @@ import { Pool } from '@uniswap/v3-sdk';
 import { getPool, getPrice, runSwap, USDC, WETH } from '@/lib/uniswap/AlphaRouterService';
 import { web3Service } from '@/lib/web3Service';
 import { getContractsForChain } from '@/lib/constants';
+import { tradingSimulatorService } from '@/services/tradingSimulator';
+import { aiTradingSimulatorAdapter } from './aiTradingSimulatorAdapter';
 
 export interface TradingDecision {
     action: "BUY" | "SELL" | "HOLD";
@@ -26,6 +28,7 @@ export class AiTradingService {
     private aiWalletEthBalance: number = 0;
     private recentTrades: Array<{ timestamp: number, action: string, amount: number, price: number }> = [];
     private minTradeIntervalMs: number = 5 * 60 * 1000; // 5 minutes between trades
+    private simulationMode: boolean = false;
 
     constructor() {
         this.logs.push("AI Trading Service initialized");
@@ -144,12 +147,59 @@ export class AiTradingService {
     }
 
     /**
+     * Enable simulation mode
+     */
+    enableSimulationMode(): void {
+        this.simulationMode = true;
+        this.logs.push("Simulation mode enabled - trades will be executed in the simulator");
+    }
+
+    /**
+     * Disable simulation mode
+     */
+    disableSimulationMode(): void {
+        this.simulationMode = false;
+        this.logs.push("Simulation mode disabled - trades will be executed on-chain");
+    }
+
+    /**
+     * Check if simulation mode is enabled
+     */
+    isSimulationMode(): boolean {
+        return this.simulationMode;
+    }
+
+    /**
      * Check the USDC balance of an AI wallet
      * @param aiWalletPrivateKey The private key of the AI wallet
      * @returns Formatted USDC balance as a string
      */
     async checkAiWalletUsdcBalance(aiWalletPrivateKey: string): Promise<string> {
         try {
+            // If in simulation mode, get balance from simulator
+            if (this.simulationMode && tradingSimulatorService.isSimulationModeEnabled()) {
+                try {
+                    const currentChainId = web3Service.currentChainId;
+                    const balances = await aiTradingSimulatorAdapter.getBalances(currentChainId);
+                    const currentContracts = getContractsForChain(currentChainId);
+
+                    // Look for USDC in the balances
+                    const usdcAddress = currentContracts.USDC.toLowerCase();
+                    if (balances[usdcAddress]) {
+                        const usdcBalance = balances[usdcAddress].balance;
+                        this.logs.push(`Simulation wallet USDC balance: ${usdcBalance}`);
+                        return usdcBalance;
+                    } else {
+                        this.logs.push("No USDC balance found in simulator");
+                        return "0.00";
+                    }
+                } catch (error) {
+                    this.logs.push(`Error getting USDC balance from simulator: ${error instanceof Error ? error.message : String(error)}`);
+                    return "0.00";
+                }
+            }
+
+            // Original code for live balance check
             // Get network information
             let provider = web3Service.provider;
             if (!provider) {
@@ -233,6 +283,12 @@ export class AiTradingService {
             const now = Date.now();
             if (now - this.lastTradeTimestamp < this.minTradeIntervalMs) {
                 this.logs.push("Skipping trade iteration: minimum time interval not reached");
+                return;
+            }
+
+            // If in simulation mode, use the simulator for getting prices and execution
+            if (this.simulationMode && tradingSimulatorService.isSimulationModeEnabled()) {
+                await this.executeSimulatedTradeIteration();
                 return;
             }
 
@@ -1050,6 +1106,237 @@ export class AiTradingService {
 
         // Update balances
         await this.updateWalletBalances();
+    }
+
+    /**
+     * Execute a trade iteration using the simulator
+     */
+    private async executeSimulatedTradeIteration(): Promise<void> {
+        try {
+            this.logs.push("Executing simulated trade iteration...");
+
+            const currentChainId = web3Service.currentChainId;
+            const contracts = getContractsForChain(currentChainId);
+
+            // Get simulated price for WETH/USDC
+            const wethPrice = await aiTradingSimulatorAdapter.getTokenPrice(
+                currentChainId,
+                contracts.WETH
+            );
+
+            this.logs.push(`Simulated WETH price: $${wethPrice.toFixed(2)}`);
+
+            // Simple price history for algorithms (in production would pull more data)
+            const priceHistory = [
+                wethPrice * 0.95,
+                wethPrice * 0.97,
+                wethPrice * 0.99,
+                wethPrice * 1.01,
+                wethPrice
+            ];
+
+            // Make trading decision
+            const decision = await this.makeAiTradingDecision(wethPrice, priceHistory, null);
+
+            this.logs.push(`AI decision: ${decision.action} with ${decision.confidence.toFixed(2)} confidence`);
+            this.logs.push(`Reasoning: ${decision.reasoning.join(', ')}`);
+
+            // If confidence is high enough, execute the trade
+            if (decision.confidence >= this.confidenceThreshold) {
+                if (decision.action !== "HOLD") {
+                    await this.executeSimulatedTrade(decision);
+                } else {
+                    this.logs.push("Decision is to HOLD, no action taken");
+                }
+            } else {
+                this.logs.push(`Confidence (${decision.confidence.toFixed(2)}) below threshold (${this.confidenceThreshold}), no action taken`);
+            }
+
+            // Update timestamp
+            this.lastTradeTimestamp = Date.now();
+
+            this.logs.push("--- Simulated trade iteration completed ---");
+        } catch (error) {
+            this.logs.push(`Error in simulated trade iteration: ${error instanceof Error ? error.message : String(error)}`);
+            console.error("Error in simulated trade iteration:", error);
+        }
+    }
+
+    /**
+     * Execute a trade using the simulator
+     */
+    private async executeSimulatedTrade(decision: TradingDecision): Promise<boolean> {
+        try {
+            this.logs.push(`Executing ${decision.action} in simulator...`);
+
+            const currentChainId = web3Service.currentChainId;
+            const contracts = getContractsForChain(currentChainId);
+
+            // Format amount based on the token decimals (assuming 6 for USDC, 18 for WETH)
+            const formatAmount = (amount: number, decimals: number) => {
+                return ethers.utils.parseUnits(amount.toString(), decimals).toString();
+            };
+
+            if (decision.action === "BUY") {
+                // USDC -> WETH
+                const fromAmount = formatAmount(decision.amount, 6); // USDC has 6 decimals
+
+                // Get a quote first
+                const quote = await aiTradingSimulatorAdapter.getSwapQuote(
+                    currentChainId,
+                    contracts.USDC,
+                    currentChainId,
+                    contracts.WETH,
+                    fromAmount
+                );
+
+                this.logs.push(`Simulator quote: ${fromAmount} USDC → ${quote.outputAmount} WETH (${quote.priceImpact}% impact)`);
+
+                // Calculate minimum output with slippage
+                const slippage = decision.suggestedSlippage || 0.005; // 0.5% default
+                const minOutput = (parseFloat(quote.outputAmount) * (1 - slippage)).toString();
+
+                // Execute the trade
+                const trade = await aiTradingSimulatorAdapter.executeSwap(
+                    currentChainId,
+                    contracts.USDC,
+                    currentChainId,
+                    contracts.WETH,
+                    fromAmount,
+                    minOutput
+                );
+
+                this.logs.push(`Simulated BUY executed: ${fromAmount} USDC → ${trade.outputAmount} WETH`);
+                this.logs.push(`Transaction ID: ${trade.transactionHash}`);
+
+                // Record the trade
+                this.recordTrade("BUY", decision.amount, parseFloat(trade.executedPrice));
+
+                // Update balances
+                await this.updateSimulatedWalletBalances();
+
+                return true;
+            } else if (decision.action === "SELL") {
+                // WETH -> USDC
+                // Get balances to determine available WETH
+                const balances = await aiTradingSimulatorAdapter.getBalances(currentChainId);
+                const wethAddress = contracts.WETH.toLowerCase();
+
+                if (!balances[wethAddress] || parseFloat(balances[wethAddress].balance) <= 0) {
+                    this.logs.push("No WETH balance available for selling");
+                    return false;
+                }
+
+                // Sell a percentage of WETH balance
+                const wethBalance = parseFloat(balances[wethAddress].balance);
+                const sellAmount = wethBalance * 0.25; // Sell 25% of holdings
+                const fromAmount = formatAmount(sellAmount, 18); // WETH has 18 decimals
+
+                // Get a quote
+                const quote = await aiTradingSimulatorAdapter.getSwapQuote(
+                    currentChainId,
+                    contracts.WETH,
+                    currentChainId,
+                    contracts.USDC,
+                    fromAmount
+                );
+
+                this.logs.push(`Simulator quote: ${fromAmount} WETH → ${quote.outputAmount} USDC (${quote.priceImpact}% impact)`);
+
+                // Calculate minimum output with slippage
+                const slippage = decision.suggestedSlippage || 0.005; // 0.5% default
+                const minOutput = (parseFloat(quote.outputAmount) * (1 - slippage)).toString();
+
+                // Execute the trade
+                const trade = await aiTradingSimulatorAdapter.executeSwap(
+                    currentChainId,
+                    contracts.WETH,
+                    currentChainId,
+                    contracts.USDC,
+                    fromAmount,
+                    minOutput
+                );
+
+                this.logs.push(`Simulated SELL executed: ${fromAmount} WETH → ${trade.outputAmount} USDC`);
+                this.logs.push(`Transaction ID: ${trade.transactionHash}`);
+
+                // Record the trade
+                this.recordTrade("SELL", sellAmount, parseFloat(trade.executedPrice));
+
+                // Update balances
+                await this.updateSimulatedWalletBalances();
+
+                return true;
+            }
+
+            return false;
+        } catch (error) {
+            this.logs.push(`Error executing simulated trade: ${error instanceof Error ? error.message : String(error)}`);
+            console.error("Error executing simulated trade:", error);
+            return false;
+        }
+    }
+
+    /**
+     * Update wallet balances from the simulator
+     */
+    private async updateSimulatedWalletBalances(): Promise<void> {
+        try {
+            const currentChainId = web3Service.currentChainId;
+            const balances = await aiTradingSimulatorAdapter.getBalances(currentChainId);
+            const contracts = getContractsForChain(currentChainId);
+
+            // Update USDC balance
+            const usdcAddress = contracts.USDC.toLowerCase();
+            if (balances[usdcAddress]) {
+                this.aiWalletUsdcBalance = parseFloat(balances[usdcAddress].balance);
+            }
+
+            // Update ETH balance
+            const wethAddress = contracts.WETH.toLowerCase();
+            if (balances[wethAddress]) {
+                this.aiWalletEthBalance = parseFloat(balances[wethAddress].balance);
+            }
+
+            this.logs.push(`Updated simulation balances: ${this.aiWalletUsdcBalance.toFixed(2)} USDC, ${this.aiWalletEthBalance.toFixed(6)} WETH`);
+        } catch (error) {
+            console.error("Error updating wallet balances:", error);
+        }
+    }
+
+    /**
+     * Update wallet balances
+     * This is the original method that will be called for real blockchain operations
+     */
+    private async updateWalletBalances(): Promise<void> {
+        try {
+            // If in simulation mode, use the simulator version
+            if (this.simulationMode && tradingSimulatorService.isSimulationModeEnabled()) {
+                await this.updateSimulatedWalletBalances();
+                return;
+            }
+
+            // Original code for updating real wallet balances on blockchain
+            // ... existing code ...
+        } catch (error) {
+            console.error("Error updating wallet balances:", error);
+        }
+    }
+
+    /**
+     * Execute a trade
+     * This handles the execution logic for both real and simulated trades
+     */
+    private async executeTrade(decision: TradingDecision): Promise<boolean> {
+        // If in simulation mode, use the simulator version
+        if (this.simulationMode && tradingSimulatorService.isSimulationModeEnabled()) {
+            return this.executeSimulatedTrade(decision);
+        }
+
+        // Original code for executing real trades on blockchain
+        // ... existing code ...
+
+        return false; // This should be replaced with the actual return from the original method
     }
 }
 

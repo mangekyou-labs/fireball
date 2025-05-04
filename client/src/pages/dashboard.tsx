@@ -9,9 +9,12 @@ import { AIStrategyPanel } from "@/components/AIStrategyPanel";
 import { CrossChainAgent } from "@/components/CrossChainAgent";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AiOnChainTrading } from "@/components/AiOnChainTrading";
+import { SimulationControls } from "@/components/SimulationControls";
+import { useSimulation } from "@/contexts/SimulationContext";
 
 export default function Dashboard() {
   const { provider, signer, address } = useWallet();
+  const { isSimulationMode } = useSimulation();
 
   return (
     <div className="min-h-screen bg-background text-foreground p-6">
@@ -30,6 +33,7 @@ export default function Dashboard() {
           <TabsList>
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="ai">AI Trading</TabsTrigger>
+            <TabsTrigger value="simulator">Trading Simulator</TabsTrigger>
             <TabsTrigger value="cross-chain">Cross-chain Agent</TabsTrigger>
           </TabsList>
 
@@ -72,6 +76,13 @@ export default function Dashboard() {
 
           <TabsContent value="ai">
             <div className="space-y-8">
+              {isSimulationMode && (
+                <div className="bg-amber-50 border border-amber-200 rounded-md p-4 mb-4 text-amber-800">
+                  <p className="font-medium">Simulation Mode Active</p>
+                  <p className="text-sm">AI strategies will execute trades in the simulator environment without using real funds.</p>
+                </div>
+              )}
+
               <Card>
                 <CardHeader>
                   <CardTitle>AI Strategy Management</CardTitle>
@@ -88,6 +99,44 @@ export default function Dashboard() {
                 </CardHeader>
                 <CardContent>
                   <AiOnChainTrading />
+                </CardContent>
+              </Card>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="simulator">
+            <div className="space-y-8">
+              <SimulationControls />
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Simulator Documentation</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="prose max-w-none">
+                    <h3>Getting Started with Trading Simulator</h3>
+                    <p>
+                      The trading simulator allows you to test your AI trading strategies in a risk-free environment.
+                      Connect to the simulator service and enable simulation mode to start testing.
+                    </p>
+
+                    <h4>Steps to use the simulator:</h4>
+                    <ol>
+                      <li>Register a team on the trading simulator server</li>
+                      <li>Get your unique API key from the simulator admin</li>
+                      <li>Connect to the simulator using the Connect button above</li>
+                      <li>Enable simulation mode to redirect all trades to the simulator</li>
+                      <li>Use the AI Trading tab to test your strategies without risking real assets</li>
+                    </ol>
+
+                    <h4>Benefits:</h4>
+                    <ul>
+                      <li>Test strategies with zero financial risk</li>
+                      <li>Access to multi-chain simulated trading</li>
+                      <li>Realistic market conditions and price data</li>
+                      <li>Compare performance against other teams</li>
+                    </ul>
+                  </div>
                 </CardContent>
               </Card>
             </div>

@@ -38,6 +38,9 @@ export const providers: { [key: number]: ethers.providers.JsonRpcProvider } = {
     // Use different endpoints for development vs production
     import.meta.env.DEV ? '/espresso-rpc' : '/api/espresso-rpc'
   ),
+  [CHAIN_IDS.IOTA_EVM_TESTNET]: new ethers.providers.JsonRpcProvider(
+    import.meta.env.VITE_IOTA_EVM_TESTNET_RPC_URL || 'https://json-rpc.evm.testnet.iotaledger.net'
+  ),
 };
 
 // Default provider and contracts

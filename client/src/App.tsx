@@ -11,6 +11,7 @@ import { CHAIN_IDS, getContractsForChain } from '@/lib/constants';
 import { updateCurrentNetwork, createTokens } from '@/lib/uniswap/AlphaRouterService';
 import { updateDexStatsProvider } from '@/lib/uniswap/DexStatsService';
 import { updatePoolServiceNetwork } from '@/lib/uniswap/PoolService';
+import { SimulationProvider } from '@/contexts/SimulationContext';
 
 // Initialize network services
 const initializeNetworkServices = () => {
@@ -47,18 +48,20 @@ export default function App() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <WalletProvider>
-        <div className="min-h-screen bg-background">
-          <Header />
-          <main>
-            <Switch>
-              <Route path="/" component={Dashboard} />
-              <Route path="/swap" component={Swap} />
-            </Switch>
-          </main>
-          <Toaster />
-        </div>
-      </WalletProvider>
+      <SimulationProvider>
+        <WalletProvider>
+          <div className="min-h-screen bg-background">
+            <Header />
+            <main>
+              <Switch>
+                <Route path="/" component={Dashboard} />
+                <Route path="/swap" component={Swap} />
+              </Switch>
+            </main>
+            <Toaster />
+          </div>
+        </WalletProvider>
+      </SimulationProvider>
     </QueryClientProvider>
   );
 }

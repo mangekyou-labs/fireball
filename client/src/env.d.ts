@@ -8,6 +8,7 @@ interface ImportMetaEnv {
   readonly VITE_CHAIN_ID: string;
   readonly VITE_RPC_URL: string;
   readonly VITE_SONIC_BLAZE_RPC_URL: string;
+  readonly VITE_IOTA_EVM_TESTNET_RPC_URL: string;
 
   // ABC Testnet Contract Addresses
   readonly VITE_UNISWAP_ROUTER_ADDRESS: string;

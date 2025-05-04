@@ -33,6 +33,12 @@ module.exports = {
       chainId: 42169,
       accounts: [process.env.PRIVATE_KEY, process.env.SECOND_PRIVATE_KEY],
       explorer: "https://explorer.decaf.testnet.espresso.network/",
+    },
+    iotaEvmTestnet: {
+      url: "https://json-rpc.evm.testnet.iotaledger.net",
+      chainId: 1075,
+      accounts: [process.env.PRIVATE_KEY, process.env.SECOND_PRIVATE_KEY],
+      explorer: "https://explorer.evm.testnet.iotaledger.net/",
     }
   },
 };

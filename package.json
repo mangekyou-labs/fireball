@@ -1,0 +1,29 @@
+{
+    "name": "fireball",
+    "version": "1.0.0",
+    "description": "AI-Powered Decentralized Exchange",
+    "private": true,
+    "scripts": {
+        "dev:client": "cd client && npm run dev",
+        "dev:server": "cd server && npm run dev",
+        "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
+        "build:client": "cd client && npm run build",
+        "build:server": "cd server && npm run build",
+        "build": "npm run build:server && npm run build:client",
+        "init:simulator": "node scripts/init-simulator.js",
+        "dev:simulator": "cd trading-simulator && npm run dev"
+    },
+    "workspaces": [
+        "client",
+        "server",
+        "hardhat",
+        "shared",
+        "trading-simulator"
+    ],
+    "dependencies": {
+        "concurrently": "^8.2.2"
+    },
+    "engines": {
+        "node": ">=16.0.0"
+    }
+}

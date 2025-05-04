@@ -1,5 +1,0 @@
-
-
-> bitte-uniswap-agent@0.1.0 build /Users/zeref/workdir/eliza/packages/near-uniswap-agent
-> rm -rf dist && tsc
-

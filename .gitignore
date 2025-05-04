@@ -10,4 +10,5 @@ vite.config.ts.*
 uniswap-examples
 alphaswarm
 swap-client
+trading-simulator
 .qodo
